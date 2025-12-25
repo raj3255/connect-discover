@@ -1,24 +1,29 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Globe, Users, X, MessageCircle, SkipForward } from 'lucide-react';
-import { mockUsers } from '@/data/mockUsers';
+import { Globe, Users } from 'lucide-react';
+import { mockUsers, currentUser } from '@/data/mockUsers';
 import { User } from '@/types';
 import { StatusIndicator } from '@/components/StatusIndicator';
 import { BottomNav } from '@/components/BottomNav';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
+import { MatchPreferences, MatchPreferencesData } from '@/components/MatchPreferences';
+import { VideoCallInterface } from '@/components/VideoCallInterface';
+import { GlobalChatInterface } from '@/components/GlobalChatInterface';
 
-type MatchState = 'idle' | 'searching' | 'matched';
+type MatchState = 'preferences' | 'searching' | 'matched' | 'connected';
 
 export default function GlobalMode() {
   const navigate = useNavigate();
   const { toast } = useToast();
   
-  const [matchState, setMatchState] = useState<MatchState>('idle');
+  const [matchState, setMatchState] = useState<MatchState>('preferences');
   const [matchedUser, setMatchedUser] = useState<User | null>(null);
   const [onlineCount] = useState(2341);
   const [searchTime, setSearchTime] = useState(0);
+  const [currentMode, setCurrentMode] = useState<'chat' | 'video'>('chat');
+  const [preferences, setPreferences] = useState<MatchPreferencesData | null>(null);
 
   // Search timer
   useEffect(() => {
@@ -30,7 +35,23 @@ export default function GlobalMode() {
       
       // Simulate finding a match after 2-5 seconds
       const matchTimer = setTimeout(() => {
-        const randomUser = mockUsers[Math.floor(Math.random() * mockUsers.length)];
+        // Filter users based on preferences (mock filtering)
+        let filteredUsers = mockUsers.filter(u => u.id !== currentUser.id);
+        
+        if (preferences) {
+          if (preferences.genderPreference !== 'all') {
+            filteredUsers = filteredUsers.filter(u => u.gender === preferences.genderPreference);
+          }
+          filteredUsers = filteredUsers.filter(u => 
+            u.age >= preferences.ageRange[0] && u.age <= preferences.ageRange[1]
+          );
+        }
+        
+        if (filteredUsers.length === 0) {
+          filteredUsers = mockUsers.filter(u => u.id !== currentUser.id);
+        }
+        
+        const randomUser = filteredUsers[Math.floor(Math.random() * filteredUsers.length)];
         setMatchedUser(randomUser);
         setMatchState('matched');
       }, 2000 + Math.random() * 3000);
@@ -40,15 +61,17 @@ export default function GlobalMode() {
         clearTimeout(matchTimer);
       };
     }
-  }, [matchState]);
+  }, [matchState, preferences]);
 
-  const startSearching = () => {
+  const startSearching = (prefs: MatchPreferencesData) => {
+    setPreferences(prefs);
+    setCurrentMode(prefs.mode);
     setMatchState('searching');
     setSearchTime(0);
   };
 
   const cancelSearch = () => {
-    setMatchState('idle');
+    setMatchState('preferences');
     setSearchTime(0);
   };
 
@@ -56,13 +79,64 @@ export default function GlobalMode() {
     setMatchedUser(null);
     setMatchState('searching');
     setSearchTime(0);
+    toast({
+      title: "Skipped",
+      description: "Looking for someone else...",
+    });
+  }, [toast]);
+
+  const connectToMatch = useCallback(() => {
+    setMatchState('connected');
   }, []);
 
-  const startChat = useCallback(() => {
-    if (matchedUser) {
-      navigate(`/global-chat/${matchedUser.id}`);
+  const endConnection = useCallback(() => {
+    setMatchedUser(null);
+    setMatchState('preferences');
+    toast({
+      title: "Connection Ended",
+      description: "You can find a new match anytime!",
+    });
+  }, [toast]);
+
+  const switchToVideo = useCallback(() => {
+    setCurrentMode('video');
+    toast({
+      title: "Switched to Video",
+      description: "Camera is now active",
+    });
+  }, [toast]);
+
+  const switchToChat = useCallback(() => {
+    setCurrentMode('chat');
+    toast({
+      title: "Switched to Chat",
+      description: "Video call ended",
+    });
+  }, [toast]);
+
+  // Render connected state (full screen chat or video)
+  if (matchState === 'connected' && matchedUser) {
+    if (currentMode === 'video') {
+      return (
+        <VideoCallInterface
+          user={matchedUser}
+          onEndCall={endConnection}
+          onSwitchToChat={switchToChat}
+          onSkip={skipMatch}
+        />
+      );
     }
-  }, [matchedUser, navigate]);
+    
+    return (
+      <GlobalChatInterface
+        user={matchedUser}
+        currentUserId={currentUser.id}
+        onEndChat={endConnection}
+        onSwitchToVideo={switchToVideo}
+        onSkip={skipMatch}
+      />
+    );
+  }
 
   return (
     <div className="min-h-screen bg-background pb-20">
@@ -75,19 +149,19 @@ export default function GlobalMode() {
               key={i}
               className="absolute w-2 h-2 rounded-full bg-primary"
               initial={{
-                x: Math.random() * window.innerWidth,
-                y: Math.random() * window.innerHeight,
+                x: Math.random() * (typeof window !== 'undefined' ? window.innerWidth : 400),
+                y: Math.random() * (typeof window !== 'undefined' ? window.innerHeight : 800),
               }}
               animate={{
                 x: [
-                  Math.random() * window.innerWidth,
-                  Math.random() * window.innerWidth,
-                  Math.random() * window.innerWidth,
+                  Math.random() * (typeof window !== 'undefined' ? window.innerWidth : 400),
+                  Math.random() * (typeof window !== 'undefined' ? window.innerWidth : 400),
+                  Math.random() * (typeof window !== 'undefined' ? window.innerWidth : 400),
                 ],
                 y: [
-                  Math.random() * window.innerHeight,
-                  Math.random() * window.innerHeight,
-                  Math.random() * window.innerHeight,
+                  Math.random() * (typeof window !== 'undefined' ? window.innerHeight : 800),
+                  Math.random() * (typeof window !== 'undefined' ? window.innerHeight : 800),
+                  Math.random() * (typeof window !== 'undefined' ? window.innerHeight : 800),
                 ],
                 opacity: [0.3, 0.8, 0.3],
               }}
@@ -105,36 +179,37 @@ export default function GlobalMode() {
       </div>
 
       <div className="relative z-10 flex flex-col items-center justify-center min-h-[calc(100vh-80px)] px-6">
+        {/* Online Count Header */}
+        <div className="absolute top-6 left-0 right-0 flex justify-center">
+          <div className="flex items-center gap-2 px-4 py-2 rounded-full glass">
+            <Users className="h-4 w-4 text-primary" />
+            <span className="text-sm text-foreground">{onlineCount.toLocaleString()} users online</span>
+          </div>
+        </div>
+
         <AnimatePresence mode="wait">
-          {matchState === 'idle' && (
+          {matchState === 'preferences' && (
             <motion.div
-              key="idle"
+              key="preferences"
               initial={{ opacity: 0, scale: 0.9 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.9 }}
-              className="text-center"
+              className="w-full"
             >
               <motion.div
                 animate={{ scale: [1, 1.05, 1] }}
                 transition={{ duration: 2, repeat: Infinity }}
-                className="h-32 w-32 rounded-full gradient-primary flex items-center justify-center mx-auto mb-8 shadow-glow"
+                className="h-24 w-24 rounded-full gradient-primary flex items-center justify-center mx-auto mb-6 shadow-glow"
               >
-                <Globe className="h-16 w-16 text-primary-foreground" />
+                <Globe className="h-12 w-12 text-primary-foreground" />
               </motion.div>
               
-              <h1 className="text-3xl font-bold text-foreground mb-4">Global Mode</h1>
-              <p className="text-muted-foreground mb-8 max-w-xs mx-auto">
-                Get matched with someone random from around the world
+              <h1 className="text-2xl font-bold text-foreground text-center mb-2">Global Mode</h1>
+              <p className="text-muted-foreground text-center mb-8 text-sm">
+                Match with someone from around the world
               </p>
               
-              <div className="flex items-center justify-center gap-2 mb-8 text-sm text-muted-foreground">
-                <Users className="h-4 w-4" />
-                <span>{onlineCount.toLocaleString()} users online</span>
-              </div>
-              
-              <Button variant="gradient" size="xl" onClick={startSearching}>
-                Find a Match
-              </Button>
+              <MatchPreferences onStart={startSearching} />
             </motion.div>
           )}
 
@@ -163,12 +238,13 @@ export default function GlobalMode() {
                 </div>
               </div>
               
-              <h2 className="text-2xl font-bold text-foreground mb-2">Finding Your Match...</h2>
+              <h2 className="text-2xl font-bold text-foreground mb-2">
+                Finding Your {currentMode === 'video' ? 'Video' : 'Chat'} Match...
+              </h2>
               <p className="text-muted-foreground mb-2">Searching {searchTime}s</p>
               <p className="text-sm text-muted-foreground mb-8">Usually matches in 5 seconds</p>
               
               <Button variant="outline" onClick={cancelSearch}>
-                <X className="h-4 w-4 mr-2" />
                 Cancel
               </Button>
             </motion.div>
@@ -237,12 +313,10 @@ export default function GlobalMode() {
                 {/* Actions */}
                 <div className="flex gap-3">
                   <Button variant="outline" className="flex-1" onClick={skipMatch}>
-                    <SkipForward className="h-4 w-4 mr-2" />
                     Skip
                   </Button>
-                  <Button variant="gradient" className="flex-1" onClick={startChat}>
-                    <MessageCircle className="h-4 w-4 mr-2" />
-                    Chat
+                  <Button variant="gradient" className="flex-1" onClick={connectToMatch}>
+                    {currentMode === 'video' ? 'Start Video' : 'Start Chat'}
                   </Button>
                 </div>
               </div>
