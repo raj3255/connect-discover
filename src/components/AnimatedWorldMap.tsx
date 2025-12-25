@@ -203,7 +203,7 @@ const AnimatedWorldMap = () => {
   return (
     <canvas
       ref={canvasRef}
-      className="fixed inset-0 -z-10"
+      className="absolute inset-0 w-full h-full"
       style={{ background: 'linear-gradient(135deg, hsl(240 10% 5%) 0%, hsl(260 15% 8%) 100%)' }}
     />
   );
