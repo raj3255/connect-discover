@@ -97,8 +97,8 @@ export default function CitySearchResults() {
                   user={user}
                   onSwipeLeft={() => handleSwipeLeft()}
                   onSwipeRight={() => handleSwipeRight()}
-                  onMessage={handleMessage}
-                  onViewProfile={handleViewProfile}
+                  onMessage={() => handleMessage(user.id)}
+                  onViewProfile={() => handleViewProfile(user.id)}
                 />
               </motion.div>
             ))
