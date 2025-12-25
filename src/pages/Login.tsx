@@ -6,6 +6,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useToast } from '@/hooks/use-toast';
+import AnimatedWorldMap from '@/components/AnimatedWorldMap';
 
 export default function Login() {
   const navigate = useNavigate();
@@ -46,10 +47,8 @@ export default function Login() {
 
   return (
     <div className="min-h-screen flex flex-col bg-background relative overflow-hidden">
-      {/* Background Effects */}
-      <div className="absolute inset-0 overflow-hidden">
-        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[600px] h-[600px] bg-primary/10 rounded-full blur-[120px]" />
-      </div>
+      {/* Animated World Map Background */}
+      <AnimatedWorldMap />
 
       <div className="flex-1 flex flex-col justify-center px-6 py-12 relative z-10">
         {/* Logo */}
