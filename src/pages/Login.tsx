@@ -46,9 +46,11 @@ export default function Login() {
   };
 
   return (
-    <div className="min-h-screen flex flex-col bg-background relative overflow-hidden">
+    <div className="min-h-screen flex flex-col relative overflow-hidden">
       {/* Animated World Map Background */}
-      <AnimatedWorldMap />
+      <div className="absolute inset-0 z-0">
+        <AnimatedWorldMap />
+      </div>
 
       <div className="flex-1 flex flex-col justify-center px-6 py-12 relative z-10">
         {/* Logo */}
