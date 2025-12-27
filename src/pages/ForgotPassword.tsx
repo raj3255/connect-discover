@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { Mail, Loader2, ArrowLeft, CheckCircle } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
@@ -8,6 +8,7 @@ import { Input } from '@/components/ui/input';
 import { useToast } from '@/hooks/use-toast';
 
 export default function ForgotPassword() {
+  const navigate = useNavigate();
   const { forgotPassword } = useAuth();
   const { toast } = useToast();
   
@@ -27,8 +28,10 @@ export default function ForgotPassword() {
     try {
       await forgotPassword(email);
       setSent(true);
+      toast({ title: 'Success', description: 'Reset code sent to your email' });
     } catch (error) {
-      toast({ title: 'Error', description: 'Failed to send reset link', variant: 'destructive' });
+      const errorMsg = error instanceof Error ? error.message : 'Failed to send reset code';
+      toast({ title: 'Error', description: errorMsg, variant: 'destructive' });
     } finally {
       setIsLoading(false);
     }
@@ -43,9 +46,15 @@ export default function ForgotPassword() {
           </div>
           <h1 className="text-2xl font-bold text-foreground mb-2">Check Your Email</h1>
           <p className="text-muted-foreground mb-8">
-            We've sent a password reset link to<br />
+            We've sent a password reset code to<br />
             <span className="text-foreground font-medium">{email}</span>
           </p>
+          <Button 
+            onClick={() => navigate('/reset-password', { state: { email } })}
+            className="gradient-primary mb-4"
+          >
+            Enter Reset Code
+          </Button>
           <Link to="/login">
             <Button variant="outline">Back to Login</Button>
           </Link>
@@ -83,7 +92,7 @@ export default function ForgotPassword() {
         >
           <h1 className="text-2xl font-bold text-foreground">Forgot Password</h1>
           <p className="mt-2 text-muted-foreground">
-            Enter your email and we'll send you a reset link
+            Enter your email and we'll send you a reset code
           </p>
         </motion.div>
 
@@ -106,7 +115,7 @@ export default function ForgotPassword() {
           </div>
 
           <Button type="submit" variant="gradient" size="lg" className="w-full" disabled={isLoading}>
-            {isLoading ? <Loader2 className="h-5 w-5 animate-spin" /> : 'Send Reset Link'}
+            {isLoading ? <Loader2 className="h-5 w-5 animate-spin" /> : 'Send Reset Code'}
           </Button>
         </motion.form>
       </div>

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import socketService from '../services/socketService';
+import socketService from '@/services/SocketService';
 
 interface ChatMessage {
   id: string;

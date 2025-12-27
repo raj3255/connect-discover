@@ -1,7 +1,7 @@
-import { useState } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useState, useRef } from 'react';
+import { useNavigate, useLocation, Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { ArrowLeft, Lock, Eye, EyeOff, CheckCircle, ShieldCheck } from 'lucide-react';
+import { ArrowLeft, Lock, Eye, EyeOff, CheckCircle, ShieldCheck, Mail } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -10,11 +10,13 @@ import { useAuth } from '@/contexts/AuthContext';
 
 export default function ResetPassword() {
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
-  const token = searchParams.get('token') || '';
+  const location = useLocation();
   const { resetPassword } = useAuth();
   const { toast } = useToast();
+  const inputRefs = useRef<(HTMLInputElement | null)[]>([]);
 
+  const email = (location.state?.email as string) || '';
+  const [code, setCode] = useState(['', '', '', '', '', '']);
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -31,15 +33,53 @@ export default function ResetPassword() {
 
   const allRequirementsMet = passwordRequirements.every(r => r.met);
   const passwordsMatch = password === confirmPassword && confirmPassword.length > 0;
+  const fullCode = code.join('');
+
+  const handleCodeChange = (index: number, value: string) => {
+    if (value.length > 1) return;
+    
+    const newCode = [...code];
+    newCode[index] = value;
+    setCode(newCode);
+
+    if (value && index < 5) {
+      inputRefs.current[index + 1]?.focus();
+    }
+  };
+
+  const handleCodeKeyDown = (index: number, e: React.KeyboardEvent) => {
+    if (e.key === 'Backspace' && !code[index] && index > 0) {
+      inputRefs.current[index - 1]?.focus();
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
+    if (!email) {
+      toast({
+        title: 'Error',
+        description: 'Email not found. Please start from forgot password page.',
+        variant: 'destructive',
+      });
+      navigate('/forgot-password');
+      return;
+    }
+
+    if (fullCode.length !== 6) {
+      toast({
+        title: 'Error',
+        description: 'Please enter the complete 6-digit code',
+        variant: 'destructive',
+      });
+      return;
+    }
+
     if (!allRequirementsMet) {
       toast({
-        title: "Password too weak",
-        description: "Please meet all password requirements.",
-        variant: "destructive",
+        title: 'Password too weak',
+        description: 'Please meet all password requirements.',
+        variant: 'destructive',
       });
       return;
     }
@@ -47,21 +87,23 @@ export default function ResetPassword() {
     if (!passwordsMatch) {
       toast({
         title: "Passwords don't match",
-        description: "Please make sure both passwords are the same.",
-        variant: "destructive",
+        description: 'Please make sure both passwords are the same.',
+        variant: 'destructive',
       });
       return;
     }
 
     setIsLoading(true);
     try {
-      await resetPassword(token, password);
+      // @ts-ignore
+      await resetPassword(fullCode, password, email);
       setIsSuccess(true);
     } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : 'Failed to reset password';
       toast({
-        title: "Error",
-        description: "Failed to reset password. Please try again.",
-        variant: "destructive",
+        title: 'Error',
+        description: errorMsg,
+        variant: 'destructive',
       });
     } finally {
       setIsLoading(false);
@@ -112,13 +154,13 @@ export default function ResetPassword() {
       {/* Header */}
       <header className="sticky top-0 z-50 glass safe-area-top">
         <div className="flex items-center px-4 h-14">
-          <Button variant="ghost" size="icon" onClick={() => navigate('/login')}>
+          <Link to="/forgot-password" className="text-muted-foreground hover:text-foreground">
             <ArrowLeft className="h-5 w-5" />
-          </Button>
+          </Link>
         </div>
       </header>
 
-      <div className="px-6 py-8">
+      <div className="px-6 py-8 max-w-sm mx-auto w-full">
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
@@ -127,17 +169,43 @@ export default function ResetPassword() {
           <div className="h-16 w-16 rounded-full gradient-primary flex items-center justify-center mx-auto mb-6 shadow-glow">
             <Lock className="h-8 w-8 text-primary-foreground" />
           </div>
-          <h1 className="text-2xl font-bold text-foreground mb-2">Create New Password</h1>
-          <p className="text-muted-foreground">
-            Your new password must be different from previously used passwords.
+          <h1 className="text-2xl font-bold text-foreground mb-2">Reset Password</h1>
+          <p className="text-muted-foreground text-sm">
+            Enter the reset code sent to<br />
+            <span className="text-foreground font-medium">{email || 'your email'}</span>
           </p>
         </motion.div>
 
         <form onSubmit={handleSubmit} className="space-y-6">
+          {/* Reset Code Input */}
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.1 }}
+          >
+            <Label className="mb-3 block">Reset Code</Label>
+            <div className="flex justify-center gap-2">
+              {code.map((digit, index) => (
+                <input
+                  key={index}
+                  ref={(el) => inputRefs.current[index] = el}
+                  type="text"
+                  inputMode="numeric"
+                  maxLength={1}
+                  value={digit}
+                  onChange={(e) => handleCodeChange(index, e.target.value)}
+                  onKeyDown={(e) => handleCodeKeyDown(index, e)}
+                  className="w-10 h-12 text-center text-xl font-bold rounded-lg border border-border bg-input text-foreground focus:ring-2 focus:ring-ring focus:border-primary transition-all"
+                />
+              ))}
+            </div>
+          </motion.div>
+
+          {/* New Password */}
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.15 }}
             className="space-y-2"
           >
             <Label htmlFor="password">New Password</Label>
@@ -164,7 +232,7 @@ export default function ResetPassword() {
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.15 }}
+            transition={{ delay: 0.2 }}
             className="space-y-2"
           >
             {passwordRequirements.map((req, index) => (
@@ -179,10 +247,11 @@ export default function ResetPassword() {
             ))}
           </motion.div>
 
+          {/* Confirm Password */}
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.2 }}
+            transition={{ delay: 0.25 }}
             className="space-y-2"
           >
             <Label htmlFor="confirmPassword">Confirm Password</Label>
@@ -210,14 +279,15 @@ export default function ResetPassword() {
             )}
           </motion.div>
 
+          {/* Submit Button */}
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.25 }}
+            transition={{ delay: 0.3 }}
           >
             <Button
               type="submit"
-              disabled={isLoading || !allRequirementsMet || !passwordsMatch}
+              disabled={isLoading || !allRequirementsMet || !passwordsMatch || fullCode.length !== 6}
               className="w-full gradient-primary shadow-glow"
             >
               {isLoading ? 'Resetting...' : 'Reset Password'}

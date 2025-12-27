@@ -12,7 +12,7 @@ export default function VerifyEmail() {
   const { verifyEmail } = useAuth();
   const { toast } = useToast();
   
-  const email = location.state?.email || 'your email';
+  const email = location.state?.email || '';
   const [code, setCode] = useState(['', '', '', '', '', '']);
   const [isLoading, setIsLoading] = useState(false);
   const [resendDisabled, setResendDisabled] = useState(false);
@@ -47,19 +47,33 @@ export default function VerifyEmail() {
       return;
     }
 
+    if (!email) {
+      toast({ title: 'Error', description: 'Email not found. Please register again.', variant: 'destructive' });
+      navigate('/register');
+      return;
+    }
+
     setIsLoading(true);
     try {
-      await verifyEmail(fullCode);
+      // Pass both code and email to verifyEmail
+      // @ts-ignore
+      await verifyEmail(fullCode, email);
       toast({ title: 'Success', description: 'Email verified successfully!' });
       navigate('/login', { replace: true });
     } catch (error) {
-      toast({ title: 'Invalid Code', description: 'Please check and try again', variant: 'destructive' });
+      const errorMsg = error instanceof Error ? error.message : 'Please check and try again';
+      toast({ title: 'Invalid Code', description: errorMsg, variant: 'destructive' });
     } finally {
       setIsLoading(false);
     }
   };
 
-  const handleResend = () => {
+  const handleResend = async () => {
+    if (!email) {
+      toast({ title: 'Error', description: 'Email not found', variant: 'destructive' });
+      return;
+    }
+
     setResendDisabled(true);
     setCountdown(60);
     
@@ -74,7 +88,25 @@ export default function VerifyEmail() {
       });
     }, 1000);
 
-    toast({ title: 'Code Sent', description: 'A new verification code has been sent' });
+    try {
+      // Call the resend-verification endpoint
+      const res = await fetch('/api/auth/resend-verification', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ email }),
+      });
+
+      if (res.ok) {
+        toast({ title: 'Success', description: 'Verification code sent to your email' });
+      } else {
+        toast({ title: 'Error', description: 'Failed to resend code', variant: 'destructive' });
+      }
+    } catch (error) {
+      console.error('Resend error:', error);
+      toast({ title: 'Error', description: 'Failed to resend code', variant: 'destructive' });
+    }
   };
 
   return (
@@ -107,7 +139,7 @@ export default function VerifyEmail() {
           <h1 className="text-2xl font-bold text-foreground">Verify Your Email</h1>
           <p className="mt-2 text-muted-foreground">
             We've sent a verification code to<br />
-            <span className="text-foreground font-medium">{email}</span>
+            <span className="text-foreground font-medium">{email || 'your email'}</span>
           </p>
         </motion.div>
 

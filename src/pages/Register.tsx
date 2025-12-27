@@ -9,7 +9,7 @@ import { useToast } from '@/hooks/use-toast';
 
 export default function Register() {
   const navigate = useNavigate();
-  const { register } = useAuth();
+  const { register, error, clearError } = useAuth();
   const { toast } = useToast();
   
   const [formData, setFormData] = useState({
@@ -26,6 +26,7 @@ export default function Register() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    clearError();
     
     if (!formData.name || !formData.email || !formData.password || !formData.age || !formData.gender) {
       toast({ title: 'Error', description: 'Please fill in all fields', variant: 'destructive' });
@@ -61,9 +62,22 @@ export default function Register() {
         age: parseInt(formData.age),
         gender: formData.gender as 'male' | 'female' | 'other',
       });
+      
+      // Registration successful, redirect to email verification
+      toast({ 
+        title: 'Success', 
+        description: 'Account created! Please verify your email.',
+        variant: 'default'
+      });
+      
       navigate('/verify-email', { state: { email: formData.email } });
     } catch (error) {
-      toast({ title: 'Registration Failed', description: 'Please try again', variant: 'destructive' });
+      const errorMsg = error instanceof Error ? error.message : 'Registration failed';
+      toast({ 
+        title: 'Registration Failed', 
+        description: errorMsg, 
+        variant: 'destructive' 
+      });
     } finally {
       setIsLoading(false);
     }
@@ -93,6 +107,16 @@ export default function Register() {
           <h1 className="text-2xl font-bold text-foreground">Create Account</h1>
           <p className="mt-1 text-sm text-muted-foreground">Join thousands of people connecting</p>
         </motion.div>
+
+        {error && (
+          <motion.div
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="max-w-sm mx-auto w-full mb-4 p-3 rounded-lg bg-destructive/10 border border-destructive/30 text-destructive text-sm"
+          >
+            {error}
+          </motion.div>
+        )}
 
         <motion.form
           initial={{ opacity: 0, y: 20 }}

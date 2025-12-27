@@ -1,10 +1,9 @@
 import io from 'socket.io-client';
-import type {Socket} from 'socket.io-client';
 
-
+type SocketIO = ReturnType<typeof io>;
 class SocketService {
   private static instance: SocketService;
-  private socket: Socket | null = null;
+  private socket: SocketIO | null = null;
 
   private constructor() {}
 
@@ -15,7 +14,7 @@ class SocketService {
     return SocketService.instance;
   }
 
-  connect(token: string):Socket {
+  connect(token: string):SocketIO {
     if (this.socket?.connected) {
       return this.socket;
     }
