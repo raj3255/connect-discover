@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { User, AuthState } from '@/types';
 import SocketService from '@/services/SocketService';
+import ApiService from '@/services/apiServices';
 
 interface AuthContextType extends AuthState {
   login: (email: string, password: string) => Promise<void>;
@@ -11,6 +12,7 @@ interface AuthContextType extends AuthState {
   resetPassword: (token: string, password: string) => Promise<void>;
   error: string | null;
   clearError: () => void;
+  updateUser: (user: User) => void;
 }
 
 interface RegisterData {
@@ -36,7 +38,59 @@ interface ApiResponse<T> {
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
-const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || 'http://localhost:5000';
+// ✅ Get base URL without /api for constructing full avatar URLs
+const BASE_URL = API_BASE_URL.replace('/api', '');
+
+// ✅ Helper function to parse interests safely
+const parseInterests = (interests: any): string[] => {
+  if (Array.isArray(interests)) {
+    return interests;
+  }
+  if (typeof interests === 'string' && interests.trim()) {
+    try {
+      const parsed = JSON.parse(interests);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  }
+  return [];
+};
+
+// ✅ Helper function to construct full avatar URL
+const getFullAvatarUrl = (avatarUrl: string | null | undefined): string | null => {
+  if (!avatarUrl) return null;
+  
+  // If already a full URL, return as-is
+  if (avatarUrl.startsWith('http://') || avatarUrl.startsWith('https://')) {
+    return avatarUrl;
+  }
+  
+  // If relative path, construct full URL
+  const cleanPath = avatarUrl.startsWith('/') ? avatarUrl : `/${avatarUrl}`;
+  const fullUrl = `${BASE_URL}${cleanPath}`;
+  
+  console.log('🔧 Converting avatar URL:', avatarUrl, '→', fullUrl);
+  return fullUrl;
+};
+
+// ✅ Helper function to normalize user data
+const normalizeUserData = (userData: any): User => {
+  const normalizedUser = {
+    ...userData,
+    interests: parseInterests(userData.interests),
+    avatar_url: getFullAvatarUrl(userData.avatar_url),
+  };
+  
+  console.log('✅ Normalized user data:', {
+    original_avatar: userData.avatar_url,
+    normalized_avatar: normalizedUser.avatar_url,
+    original_interests: userData.interests,
+    normalized_interests: normalizedUser.interests,
+  });
+  
+  return normalizedUser;
+};
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<AuthState>({
@@ -46,37 +100,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   });
   const [error, setError] = useState<string | null>(null);
 
-  // Initialize socket connection when user is authenticated
-  useEffect(() => {
-    console.log('🔍 Auth state changed:', { isAuthenticated: state.isAuthenticated, hasUser: !!state.user });
-    
-    if (state.isAuthenticated && state.user) {
-      const token = localStorage.getItem('auth_token');
-      console.log('📍 Token from storage:', token ? 'Found' : 'Not found');
-      
-      if (token) {
-        console.log('🔌 Connecting socket with token...');
-        try {
-          SocketService.connect(token);
-          console.log('✅ SocketService.connect() called successfully');
-        } catch (err) {
-          console.error('❌ Error connecting socket:', err);
-        }
-      }
-    } else {
-      // Disconnect socket if user logs out
-      console.log('🔌 Disconnecting socket...');
-      SocketService.disconnect();
-    }
-  }, [state.isAuthenticated, state.user]);
-
-  // Check for existing session on mount
+  // Initialize auth on mount
   useEffect(() => {
     const initAuth = async () => {
       try {
         const token = localStorage.getItem('auth_token');
+        
         if (token) {
-          const res = await fetch(`${API_BASE_URL}/auth/me`, {
+          // ✅ CRITICAL: Set token in ApiService before making any requests
+          ApiService.setToken(token);
+          
+          const res = await fetch(`${API_BASE_URL}/users/profile`, {
             method: 'GET',
             headers: {
               'Authorization': `Bearer ${token}`,
@@ -86,13 +120,30 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
           if (res.ok) {
             const data: ApiResponse<User> = await res.json();
-            setState({
-              user: data.user || data.data || null,
-              isAuthenticated: true,
-              isLoading: false,
-            });
+            const userData = data.user || data.data || null;
+            
+            console.log('🔍 Raw user data from server:', userData);
+            
+            if (userData) {
+              // ✅ Normalize user data to ensure interests are parsed and avatar URL is full
+              const normalizedUser = normalizeUserData(userData);
+              
+              setState({
+                user: normalizedUser,
+                isAuthenticated: true,
+                isLoading: false,
+              });
+              
+              // Connect socket after successful auth
+              SocketService.connect(token);
+            } else {
+              setState(prev => ({ ...prev, isLoading: false }));
+            }
           } else {
+            // Token is invalid, clear it
             localStorage.removeItem('auth_token');
+            localStorage.removeItem('refresh_token');
+            ApiService.clearToken();
             setState(prev => ({ ...prev, isLoading: false }));
           }
         } else {
@@ -100,12 +151,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
       } catch (err) {
         console.error('Auth initialization error:', err);
+        localStorage.removeItem('auth_token');
+        localStorage.removeItem('refresh_token');
+        ApiService.clearToken();
         setState(prev => ({ ...prev, isLoading: false }));
       }
     };
 
     initAuth();
   }, []);
+
+  // Handle socket connection based on auth state
+  useEffect(() => {
+    if (state.isAuthenticated && state.user) {
+      const token = localStorage.getItem('auth_token');
+      if (token) {
+        SocketService.connect(token);
+      }
+    } else {
+      SocketService.disconnect();
+    }
+  }, [state.isAuthenticated, state.user]);
 
   const login = async (email: string, password: string) => {
     try {
@@ -126,7 +192,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         throw new Error(data.error || 'Login failed');
       }
 
-      // Handle both response formats
       const token = data.tokens?.accessToken || data.token;
       const userData = data.user || data.data;
 
@@ -140,11 +205,48 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         localStorage.setItem('refresh_token', data.tokens.refreshToken);
       }
 
-      setState({
-        user: userData,
-        isAuthenticated: true,
-        isLoading: false,
-      });
+      // ✅ Set token in ApiService
+      ApiService.setToken(token);
+
+      // ✅ Fetch fresh profile data to ensure we have latest avatar and interests
+      try {
+        const profileRes = await fetch(`${API_BASE_URL}/users/profile`, {
+          method: 'GET',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+        });
+
+        if (profileRes.ok) {
+          const profileData: ApiResponse<User> = await profileRes.json();
+          const freshUserData = profileData.user || profileData.data || userData;
+          const normalizedUser = normalizeUserData(freshUserData);
+          
+          setState({
+            user: normalizedUser,
+            isAuthenticated: true,
+            isLoading: false,
+          });
+        } else {
+          // Fallback to login response data if profile fetch fails
+          const normalizedUser = normalizeUserData(userData);
+          setState({
+            user: normalizedUser,
+            isAuthenticated: true,
+            isLoading: false,
+          });
+        }
+      } catch (profileErr) {
+        console.warn('Failed to fetch fresh profile, using login data:', profileErr);
+        // Fallback to login response data
+        const normalizedUser = normalizeUserData(userData);
+        setState({
+          user: normalizedUser,
+          isAuthenticated: true,
+          isLoading: false,
+        });
+      }
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Login failed';
       setError(message);
@@ -172,11 +274,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         throw new Error(response.error || 'Registration failed');
       }
 
-      // Registration successful - user will need to verify email
-      console.log('✅ Registration successful, redirecting to email verification');
       setState(prev => ({ ...prev, isLoading: false }));
-      
-      // Return response so component can handle navigation
       return response;
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Registration failed';
@@ -204,6 +302,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       localStorage.removeItem('auth_token');
       localStorage.removeItem('refresh_token');
+      ApiService.clearToken();
+      SocketService.disconnect();
 
       setState({
         user: null,
@@ -219,10 +319,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const verifyEmail = async (code: string, email?: string) => {
     try {
       setError(null);
-      
-      // Get email from user state or parameter
       const emailToVerify = email || state.user?.email;
-      
+
       if (!emailToVerify) {
         throw new Error('Email not found. Please register again.');
       }
@@ -242,9 +340,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
 
       if (data.user || data.data) {
+        const normalizedUser = normalizeUserData(data.user || data.data);
         setState(prev => ({
           ...prev,
-          user: data.user || data.data,
+          user: normalizedUser,
         }));
       }
     } catch (err) {
@@ -306,6 +405,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  const updateUser = (updatedUser: User) => {
+    console.log('🔄 Updating user in context:', updatedUser);
+    // ✅ Normalize the updated user data
+    const normalizedUser = normalizeUserData(updatedUser);
+    
+    setState(prev => ({
+      ...prev,
+      user: normalizedUser,
+    }));
+  };
+
   const clearError = () => setError(null);
 
   return (
@@ -320,6 +430,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         resetPassword,
         error,
         clearError,
+        updateUser,
       }}
     >
       {children}

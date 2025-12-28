@@ -1,16 +1,14 @@
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { Settings, Camera, Edit2, LogOut, Shield, Bell, HelpCircle, ChevronRight, ImagePlus } from 'lucide-react';
-import { currentUser } from '@/data/mockUsers';
 import { StatusIndicator } from '@/components/StatusIndicator';
 import { BottomNav } from '@/components/BottomNav';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/contexts/AuthContext';
-
 export default function Profile() {
   const navigate = useNavigate();
-  const { logout } = useAuth();
-
+  const { user, logout } = useAuth();
+ 
   const menuItems = [
     { icon: Edit2, label: 'Edit Profile', action: () => navigate('/edit-profile') },
     { icon: Bell, label: 'Notifications', action: () => {} },
@@ -22,6 +20,33 @@ export default function Profile() {
     logout();
     navigate('/login', { replace: true });
   };
+
+  // Show loading state if user data is not available
+  if (!user) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
+          <p className="text-muted-foreground">Loading profile...</p>
+        </div>
+      </div>
+    );
+  }
+
+  const getInitials = (name: string) => {
+    if (!name) return '?';
+    return name.split(' ').map(n => n[0]).join('').toUpperCase();
+  };
+
+  // Parse interests if they're stored as string
+  const interests = Array.isArray(user.interests) 
+    ? user.interests 
+    : typeof user.interests === 'string' && user.interests
+    ? JSON.parse(user.interests)
+    : [];
+
+  // Determine status based on is_active field
+  const userStatus = user.is_active ? 'online' : 'offline';
 
   return (
     <div className="min-h-screen bg-background pb-20">
@@ -50,16 +75,27 @@ export default function Profile() {
             {/* Avatar */}
             <div className="flex justify-center -mt-16 mb-4">
               <div className="relative">
-                <img
-                  src={currentUser.avatar}
-                  alt={currentUser.name}
-                  className="h-28 w-28 rounded-full object-cover border-4 border-card shadow-elevated"
-                />
-                <button className="absolute bottom-0 right-0 h-9 w-9 rounded-full gradient-primary flex items-center justify-center shadow-glow">
+                {user.avatar_url ? (
+                  <img
+                    src={user.avatar_url}
+                    alt={user.name}
+                    className="h-28 w-28 rounded-full object-cover border-4 border-card shadow-elevated"
+                  />
+                ) : (
+                  <div className="h-28 w-28 rounded-full bg-primary/10 border-4 border-card shadow-elevated flex items-center justify-center">
+                    <span className="text-3xl font-bold text-primary">
+                      {getInitials(user.name)}
+                    </span>
+                  </div>
+                )}
+                <button 
+                  className="absolute bottom-0 right-0 h-9 w-9 rounded-full gradient-primary flex items-center justify-center shadow-glow"
+                  onClick={() => navigate('/edit-profile')}
+                >
                   <Camera className="h-4 w-4 text-primary-foreground" />
                 </button>
                 <div className="absolute bottom-0 left-0 p-1 bg-card rounded-full">
-                  <StatusIndicator status={currentUser.status} size="lg" showRing />
+                  <StatusIndicator status={userStatus} size="lg" showRing />
                 </div>
               </div>
             </div>
@@ -67,22 +103,26 @@ export default function Profile() {
             {/* Info */}
             <div className="text-center mb-4">
               <h1 className="text-2xl font-bold text-foreground">
-                {currentUser.name}, {currentUser.age}
+                {user.name}, {user.age}
               </h1>
-              <p className="text-muted-foreground mt-1">{currentUser.bio}</p>
+              {user.bio && (
+                <p className="text-muted-foreground mt-1">{user.bio}</p>
+              )}
             </div>
 
             {/* Interests */}
-            <div className="flex flex-wrap justify-center gap-2">
-              {currentUser.interests.map((interest) => (
-                <span
-                  key={interest}
-                  className="px-3 py-1 text-sm rounded-full bg-secondary text-foreground"
-                >
-                  {interest}
-                </span>
-              ))}
-            </div>
+            {interests.length > 0 && (
+              <div className="flex flex-wrap justify-center gap-2">
+                {interests.map((interest: string) => (
+                  <span
+                    key={interest}
+                    className="px-3 py-1 text-sm rounded-full bg-secondary text-foreground"
+                  >
+                    {interest}
+                  </span>
+                ))}
+              </div>
+            )}
           </motion.div>
         </div>
       </header>
