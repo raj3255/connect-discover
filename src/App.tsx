@@ -58,7 +58,7 @@ function AppRoutes() {
       <Route path="/local/city/:cityName" element={<ProtectedRoute><CitySearchResults /></ProtectedRoute>} />
       <Route path="/global" element={<ProtectedRoute><GlobalMode /></ProtectedRoute>} />
       <Route path="/messages" element={<ProtectedRoute><Messages /></ProtectedRoute>} />
-      <Route path="/chat/:userId" element={<ProtectedRoute><Chat /></ProtectedRoute>} />
+      <Route path="/chat/:conversationId" element={<ProtectedRoute><Chat /></ProtectedRoute>} />
       <Route path="/global-chat/:userId" element={<ProtectedRoute><Chat /></ProtectedRoute>} />
       <Route path="/profile" element={<ProtectedRoute><Profile /></ProtectedRoute>} />
       <Route path="/edit-profile" element={<ProtectedRoute><EditProfile /></ProtectedRoute>} />

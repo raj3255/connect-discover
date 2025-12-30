@@ -10,15 +10,17 @@ import {
   RotateCcw,
   Sparkles,
   Monitor,
-  MoreVertical,
   Minimize2,
   Maximize2
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { User } from '@/types';
+import { useWebRTC } from '@/hooks/useWebRTC';
 
 interface VideoCallInterfaceProps {
   user: User;
+  conversationId: string;
+  isInitiator: boolean; // true if this user started the call
   onEndCall: () => void;
   onSwitchToChat: () => void;
   onSkip: () => void;
@@ -26,8 +28,17 @@ interface VideoCallInterfaceProps {
 
 type FilterType = 'none' | 'blur' | 'grayscale' | 'sepia' | 'brightness';
 
-export function VideoCallInterface({ user, onEndCall, onSwitchToChat, onSkip }: VideoCallInterfaceProps) {
+export function VideoCallInterface({ 
+  user, 
+  conversationId,
+  isInitiator,
+  onEndCall, 
+  onSwitchToChat, 
+  onSkip 
+}: VideoCallInterfaceProps) {
   const localVideoRef = useRef<HTMLVideoElement>(null);
+  const remoteVideoRef = useRef<HTMLVideoElement>(null);
+  
   const [isVideoEnabled, setIsVideoEnabled] = useState(true);
   const [isAudioEnabled, setIsAudioEnabled] = useState(true);
   const [isScreenSharing, setIsScreenSharing] = useState(false);
@@ -36,8 +47,29 @@ export function VideoCallInterface({ user, onEndCall, onSwitchToChat, onSkip }: 
   const [isFrontCamera, setIsFrontCamera] = useState(true);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [showControls, setShowControls] = useState(true);
-  const [localStream, setLocalStream] = useState<MediaStream | null>(null);
   const [callDuration, setCallDuration] = useState(0);
+
+  // WebRTC hook
+  const {
+    localStream,
+    remoteStream,
+    isConnected,
+    isConnecting,
+    toggleVideo: webrtcToggleVideo,
+    toggleAudio: webrtcToggleAudio,
+    endCall: webrtcEndCall,
+  } = useWebRTC({
+    conversationId,
+    isInitiator,
+    onRemoteStream: (stream) => {
+      if (remoteVideoRef.current) {
+        remoteVideoRef.current.srcObject = stream;
+      }
+    },
+    onCallEnded: () => {
+      onEndCall();
+    }
+  });
 
   const filters: { type: FilterType; label: string; css: string }[] = [
     { type: 'none', label: 'None', css: '' },
@@ -47,21 +79,25 @@ export function VideoCallInterface({ user, onEndCall, onSwitchToChat, onSkip }: 
     { type: 'brightness', label: 'Bright', css: 'brightness-110 contrast-110' },
   ];
 
-  // Initialize camera
+  // Set local video stream
   useEffect(() => {
-    startCamera();
-    return () => {
-      stopCamera();
-    };
-  }, [isFrontCamera]);
+    if (localVideoRef.current && localStream) {
+      localVideoRef.current.srcObject = localStream;
+    }
+  }, [localStream]);
 
   // Call duration timer
   useEffect(() => {
-    const timer = setInterval(() => {
-      setCallDuration(prev => prev + 1);
-    }, 1000);
-    return () => clearInterval(timer);
-  }, []);
+    let timer: NodeJS.Timeout;
+    if (isConnected) {
+      timer = setInterval(() => {
+        setCallDuration(prev => prev + 1);
+      }, 1000);
+    }
+    return () => {
+      if (timer) clearInterval(timer);
+    };
+  }, [isConnected]);
 
   // Auto-hide controls
   useEffect(() => {
@@ -72,58 +108,43 @@ export function VideoCallInterface({ user, onEndCall, onSwitchToChat, onSkip }: 
     return () => clearTimeout(timeout);
   }, [showControls]);
 
-  const startCamera = async () => {
+  const toggleVideo = () => {
+    const newState = !isVideoEnabled;
+    setIsVideoEnabled(newState);
+    webrtcToggleVideo(newState);
+  };
+
+  const toggleAudio = () => {
+    const newState = !isAudioEnabled;
+    setIsAudioEnabled(newState);
+    webrtcToggleAudio(newState);
+  };
+
+  const switchCamera = async () => {
+    // Stop current stream
+    if (localStream) {
+      localStream.getTracks().forEach(track => track.stop());
+    }
+    
+    // Get new stream with opposite camera
     try {
-      const constraints: MediaStreamConstraints = {
+      const newStream = await navigator.mediaDevices.getUserMedia({
         video: {
-          facingMode: isFrontCamera ? 'user' : 'environment',
+          facingMode: isFrontCamera ? 'environment' : 'user',
           width: { ideal: 1280 },
           height: { ideal: 720 },
         },
         audio: true,
-      };
-
-      const stream = await navigator.mediaDevices.getUserMedia(constraints);
-      setLocalStream(stream);
-
+      });
+      
       if (localVideoRef.current) {
-        localVideoRef.current.srcObject = stream;
+        localVideoRef.current.srcObject = newStream;
       }
+      
+      setIsFrontCamera(!isFrontCamera);
     } catch (error) {
-      console.error('Error accessing camera:', error);
+      console.error('Error switching camera:', error);
     }
-  };
-
-  const stopCamera = () => {
-    if (localStream) {
-      localStream.getTracks().forEach(track => track.stop());
-      setLocalStream(null);
-    }
-  };
-
-  const toggleVideo = () => {
-    if (localStream) {
-      const videoTrack = localStream.getVideoTracks()[0];
-      if (videoTrack) {
-        videoTrack.enabled = !videoTrack.enabled;
-        setIsVideoEnabled(videoTrack.enabled);
-      }
-    }
-  };
-
-  const toggleAudio = () => {
-    if (localStream) {
-      const audioTrack = localStream.getAudioTracks()[0];
-      if (audioTrack) {
-        audioTrack.enabled = !audioTrack.enabled;
-        setIsAudioEnabled(audioTrack.enabled);
-      }
-    }
-  };
-
-  const switchCamera = () => {
-    stopCamera();
-    setIsFrontCamera(!isFrontCamera);
   };
 
   const startScreenShare = async () => {
@@ -133,14 +154,12 @@ export function VideoCallInterface({ user, onEndCall, onSwitchToChat, onSkip }: 
         audio: true,
       });
       
-      // Replace video track with screen share
       if (localVideoRef.current) {
         localVideoRef.current.srcObject = screenStream;
       }
       
       setIsScreenSharing(true);
       
-      // Listen for screen share end
       screenStream.getVideoTracks()[0].onended = () => {
         stopScreenShare();
       };
@@ -151,7 +170,9 @@ export function VideoCallInterface({ user, onEndCall, onSwitchToChat, onSkip }: 
 
   const stopScreenShare = () => {
     setIsScreenSharing(false);
-    startCamera();
+    if (localVideoRef.current && localStream) {
+      localVideoRef.current.srcObject = localStream;
+    }
   };
 
   const toggleScreenShare = () => {
@@ -160,6 +181,11 @@ export function VideoCallInterface({ user, onEndCall, onSwitchToChat, onSkip }: 
     } else {
       startScreenShare();
     }
+  };
+
+  const handleEndCall = () => {
+    webrtcEndCall();
+    onEndCall();
   };
 
   const formatDuration = (seconds: number) => {
@@ -178,15 +204,51 @@ export function VideoCallInterface({ user, onEndCall, onSwitchToChat, onSkip }: 
       className="fixed inset-0 bg-black z-50"
       onClick={() => setShowControls(true)}
     >
-      {/* Remote Video (Full Screen) - Using user avatar as placeholder */}
+      {/* Remote Video (Full Screen) */}
       <div className="absolute inset-0">
-        <img
-          src={user.avatar}
-          alt={user.name}
-          className="w-full h-full object-cover"
-        />
+        {remoteStream ? (
+          <video
+            ref={remoteVideoRef}
+            autoPlay
+            playsInline
+            className="w-full h-full object-cover"
+          />
+        ) : (
+          <>
+            <img
+              src={user.avatar}
+              alt={user.name}
+              className="w-full h-full object-cover blur-sm"
+            />
+            <div className="absolute inset-0 flex items-center justify-center bg-black/40">
+              <div className="text-center text-white">
+                {isConnecting ? (
+                  <>
+                    <div className="animate-spin rounded-full h-16 w-16 border-4 border-white border-t-transparent mx-auto mb-4" />
+                    <p className="text-xl font-medium">Connecting...</p>
+                  </>
+                ) : (
+                  <>
+                    <Video className="h-16 w-16 mx-auto mb-4 opacity-50" />
+                    <p className="text-xl font-medium">Waiting for {user.name}...</p>
+                  </>
+                )}
+              </div>
+            </div>
+          </>
+        )}
         <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-black/40" />
       </div>
+
+      {/* Connection Status Indicator */}
+      {isConnected && (
+        <div className="absolute top-4 left-1/2 transform -translate-x-1/2">
+          <div className="glass px-4 py-2 rounded-full flex items-center gap-2">
+            <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
+            <span className="text-white text-sm">Connected</span>
+          </div>
+        </div>
+      )}
 
       {/* Local Video (Picture-in-Picture) */}
       <motion.div
@@ -219,9 +281,11 @@ export function VideoCallInterface({ user, onEndCall, onSwitchToChat, onSkip }: 
             className="absolute top-0 left-0 right-0 p-4 flex items-center justify-between"
           >
             <div className="flex items-center gap-3">
-              <div className="glass px-4 py-2 rounded-full">
-                <span className="text-white font-medium">{formatDuration(callDuration)}</span>
-              </div>
+              {isConnected && (
+                <div className="glass px-4 py-2 rounded-full">
+                  <span className="text-white font-medium">{formatDuration(callDuration)}</span>
+                </div>
+              )}
               {isScreenSharing && (
                 <div className="glass px-3 py-2 rounded-full flex items-center gap-2">
                   <Monitor className="h-4 w-4 text-green-400" />
@@ -333,7 +397,7 @@ export function VideoCallInterface({ user, onEndCall, onSwitchToChat, onSkip }: 
 
               {/* End Call */}
               <Button
-                onClick={onEndCall}
+                onClick={handleEndCall}
                 className="h-16 w-16 rounded-full bg-destructive hover:bg-destructive/90"
               >
                 <Phone className="h-6 w-6 text-white rotate-[135deg]" />
@@ -359,6 +423,7 @@ export function VideoCallInterface({ user, onEndCall, onSwitchToChat, onSkip }: 
                 size="icon"
                 onClick={toggleScreenShare}
                 className={`h-12 w-12 rounded-full ${isScreenSharing ? 'bg-green-500' : 'glass'}`}
+                disabled={!isConnected}
               >
                 <Monitor className="h-5 w-5 text-white" />
               </Button>

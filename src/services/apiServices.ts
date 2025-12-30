@@ -17,15 +17,15 @@ class ApiService {
 
   static getHeaders(includeContentType = true): HeadersInit {
     const headers: HeadersInit = {};
-    
+
     if (includeContentType) {
       headers['Content-Type'] = 'application/json';
     }
-    
+
     if (this.token) {
       headers['Authorization'] = `Bearer ${this.token}`;
     }
-    
+
     return headers;
   }
 
@@ -81,6 +81,16 @@ class ApiService {
       headers: this.getHeaders(),
       body: JSON.stringify({ email, code, newPassword })
     });
+    return res.json();
+  }
+  static async markConversationRead(conversationId: string) {
+    const res = await fetch(
+      `${API_BASE}/conversations/${conversationId}/read`,
+      {
+        method: 'POST',
+        headers: this.getHeaders()
+      }
+    );
     return res.json();
   }
 
@@ -200,14 +210,34 @@ class ApiService {
     return res.json();
   }
 
-  static async createConversation(userId: string) {
+  static async createConversation(
+    userId: string,
+    chatMode: string = 'global'
+  ) {
+    console.log(`Creating conversation with ${userId}, mode: ${chatMode}`);
+
     const res = await fetch(`${API_BASE}/conversations`, {
       method: 'POST',
       headers: this.getHeaders(),
-      body: JSON.stringify({ otherUserId: userId })
+      body: JSON.stringify({
+        otherUserId: userId,
+        chatMode
+      })
     });
-    return res.json();
+
+    // ✅ READ ONCE
+    const data = await res.json();
+
+    console.log('Conversation creation response:', data);
+
+    if (!res.ok) {
+      throw new Error(data?.message || 'Failed to create conversation');
+    }
+
+    // ✅ RETURN PARSED DATA
+    return data;
   }
+
 
   static async getConversation(conversationId: string) {
     const res = await fetch(`${API_BASE}/conversations/${conversationId}`, {
@@ -242,14 +272,15 @@ class ApiService {
       `${API_BASE}/conversations/${conversationId}/messages?page=${page}&limit=${limit}`,
       { headers: this.getHeaders() }
     );
-    return res.json();
+    const data = await res.json();
+    return data;
   }
 
-  static async sendMessage(conversationId: string, content: string) {
+  static async sendMessage(conversationId: string, text: string, mediaUrls?: string[]) {
     const res = await fetch(`${API_BASE}/conversations/${conversationId}/messages`, {
       method: 'POST',
       headers: this.getHeaders(),
-      body: JSON.stringify({ content })
+      body: JSON.stringify({ text, mediaUrls })  // ✅ Fixed
     });
     return res.json();
   }

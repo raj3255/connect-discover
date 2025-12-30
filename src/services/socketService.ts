@@ -1,9 +1,11 @@
 import io from 'socket.io-client';
 
 type SocketIO = ReturnType<typeof io>;
+
 class SocketService {
   private static instance: SocketService;
   private socket: SocketIO | null = null;
+  private isSearching: boolean = false;
 
   private constructor() {}
 
@@ -14,7 +16,7 @@ class SocketService {
     return SocketService.instance;
   }
 
-  connect(token: string):SocketIO {
+  connect(token: string): SocketIO {
     if (this.socket?.connected) {
       return this.socket;
     }
@@ -43,6 +45,7 @@ class SocketService {
 
     this.socket.on('disconnect', () => {
       console.log('❌ Socket disconnected');
+      this.isSearching = false;
     });
 
     this.socket.on('error', (error) => {
@@ -51,6 +54,14 @@ class SocketService {
 
     this.socket.on('connection:success', (data) => {
       console.log('✅ Socket connection success:', data);
+    });
+
+    this.socket.on('match:found', () => {
+      this.isSearching = false;
+    });
+
+    this.socket.on('match:stopped', () => {
+      this.isSearching = false;
     });
   }
 
@@ -179,6 +190,13 @@ class SocketService {
   // ============================================================================
 
   startMatching(mode: 'chat' | 'video', ageRange: [number, number], genderPreference: string): void {
+    if (this.isSearching) {
+      console.warn('⚠️ Already searching, ignoring duplicate request');
+      return;
+    }
+
+    console.log('🔍 Starting match search:', { mode, ageRange, genderPreference });
+    this.isSearching = true;
     this.emit('match:start_searching', {
       mode,
       ageRange,
@@ -187,6 +205,8 @@ class SocketService {
   }
 
   stopMatching(): void {
+    console.log('⏹️ Stopping match search');
+    this.isSearching = false;
     this.emit('match:stop_searching');
   }
 
@@ -196,6 +216,11 @@ class SocketService {
 
   declineMatch(matchId: string): void {
     this.emit('match:decline', matchId);
+  }
+
+  skipMatch(matchId: string): void {
+    console.log('⏭️ Skipping match:', matchId);
+    this.emit('match:skip', matchId);
   }
 
   endSession(): void {
@@ -216,6 +241,98 @@ class SocketService {
 
   onPartnerLeft(callback: () => void): void {
     this.on('match:partner_left', callback);
+  }
+
+  onPartnerSkipped(callback: () => void): void {
+    this.on('match:partner_skipped', callback);
+  }
+
+  // ============================================================================
+  // WEBRTC METHODS - Video Call Signaling
+  // ============================================================================
+
+  // Send WebRTC offer to peer
+  sendWebRTCOffer(conversationId: string, offer: any): void {
+    console.log('📹 Sending WebRTC offer');
+    this.emit('webrtc:offer', { conversationId, offer });
+  }
+
+  // Send WebRTC answer to peer
+  sendWebRTCAnswer(conversationId: string, answer: any): void {
+    console.log('📹 Sending WebRTC answer');
+    this.emit('webrtc:answer', { conversationId, answer });
+  }
+
+  // Send ICE candidate to peer
+  sendICECandidate(conversationId: string, candidate: any): void {
+    console.log('🧊 Sending ICE candidate');
+    this.emit('webrtc:ice-candidate', { conversationId, candidate });
+  }
+
+  // End video call
+  endVideoCall(conversationId: string): void {
+    console.log('📞 Ending video call');
+    this.emit('webrtc:end-call', { conversationId });
+  }
+
+  // Notify peer about media toggle (video/audio on/off)
+  toggleMediaState(conversationId: string, type: 'video' | 'audio', enabled: boolean): void {
+    console.log(`🎥 Toggling ${type} to ${enabled ? 'on' : 'off'}`);
+    this.emit('webrtc:media-toggle', { conversationId, type, enabled });
+  }
+
+  // Listen for incoming WebRTC offer
+  onWebRTCOffer(callback: (data: { userId: string; offer: any; conversationId: string }) => void): void {
+    this.on('webrtc:offer', callback);
+  }
+
+  // Listen for incoming WebRTC answer
+  onWebRTCAnswer(callback: (data: { userId: string; answer: any; conversationId: string }) => void): void {
+    this.on('webrtc:answer', callback);
+  }
+
+  // Listen for incoming ICE candidates
+  onICECandidate(callback: (data: { userId: string; candidate: any; conversationId: string }) => void): void {
+    this.on('webrtc:ice-candidate', callback);
+  }
+
+  // Listen for call ended by peer
+  onCallEnded(callback: (data: { userId: string; conversationId: string }) => void): void {
+    this.on('webrtc:call-ended', callback);
+  }
+
+  // Listen for peer media toggle
+  onMediaToggle(callback: (data: { userId: string; type: 'video' | 'audio'; enabled: boolean }) => void): void {
+    this.on('webrtc:media-toggle', callback);
+  }
+
+  // Listen for WebRTC errors
+  onWebRTCError(callback: (data: { message: string }) => void): void {
+    this.on('webrtc:error', callback);
+  }
+
+  // ============================================================================
+  // GLOBAL MODE WRAPPERS (UI-FRIENDLY)
+  // ============================================================================
+
+  startGlobalSearch(data: {
+    mode: 'chat' | 'video';
+    ageRange: [number, number];
+    genderPreference: string;
+  }): void {
+    this.startMatching(data.mode, data.ageRange, data.genderPreference);
+  }
+
+  cancelGlobalSearch(): void {
+    this.stopMatching();
+  }
+
+  skipGlobalMatch(matchId: string): void {
+    this.skipMatch(matchId);
+  }
+
+  onGlobalMatch(callback: (user: any) => void): void {
+    this.on('match:found', callback);
   }
 }
 

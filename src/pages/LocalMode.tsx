@@ -2,7 +2,10 @@ import { useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { MapPin, RefreshCw, Search, ChevronDown, Users } from 'lucide-react';
-import { mockUsers } from '@/data/mockUsers';
+import ApiService from '@/services/apiServices';
+import { useEffect } from 'react';
+
+
 import { UserCard } from '@/components/UserCard';
 import { BottomNav } from '@/components/BottomNav';
 import { Button } from '@/components/ui/button';
@@ -13,14 +16,31 @@ const distances = [1, 5, 10, 25, 50];
 export default function LocalMode() {
   const navigate = useNavigate();
   const { toast } = useToast();
-  
-  const [users, setUsers] = useState(mockUsers.filter(u => u.location));
+
+  const [users, setUsers] = useState<any[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [selectedDistance, setSelectedDistance] = useState(25);
   const [showDistanceDropdown, setShowDistanceDropdown] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
 
   const currentUser = users[currentIndex];
+  const fetchNearbyUsers = useCallback(async (distance: number) => {
+    try {
+      const res = await ApiService.get(`/location/nearby?distance=${distance}`);
+      setUsers(res.data.users || []);
+      setCurrentIndex(0);
+    } catch (err) {
+      toast({
+        title: 'Error',
+        description: 'Unable to fetch nearby users',
+        variant: 'destructive',
+      });
+    }
+  }, [toast]);
+
+ useEffect(() => {
+  fetchNearbyUsers(selectedDistance);
+}, [fetchNearbyUsers, selectedDistance]);
 
   const handleSwipeLeft = useCallback(() => {
     if (currentIndex < users.length - 1) {
@@ -49,13 +69,14 @@ export default function LocalMode() {
 
   const handleRefresh = async () => {
     setIsRefreshing(true);
-    // Simulate API call
-    await new Promise(resolve => setTimeout(resolve, 1000));
-    setCurrentIndex(0);
+    await fetchNearbyUsers(selectedDistance);
     setIsRefreshing(false);
-    toast({ title: 'Refreshed', description: 'Found nearby users' });
-  };
 
+    toast({
+      title: 'Refreshed',
+      description: 'Found nearby users',
+    });
+  };
   return (
     <div className="min-h-screen bg-background pb-20">
       {/* Header */}
@@ -71,7 +92,7 @@ export default function LocalMode() {
               <span className="font-medium">{selectedDistance} km</span>
               <ChevronDown className="h-4 w-4 text-muted-foreground" />
             </button>
-            
+
             <AnimatePresence>
               {showDistanceDropdown && (
                 <motion.div
@@ -85,11 +106,10 @@ export default function LocalMode() {
                       key={d}
                       onClick={() => {
                         setSelectedDistance(d);
-                        setShowDistanceDropdown(false);
+                        setShowDistanceDropdown(false)
                       }}
-                      className={`w-full px-6 py-2 text-left hover:bg-secondary transition-colors ${
-                        d === selectedDistance ? 'text-primary font-semibold' : 'text-foreground'
-                      }`}
+                      className={`w-full px-6 py-2 text-left hover:bg-secondary transition-colors ${d === selectedDistance ? 'text-primary font-semibold' : 'text-foreground'
+                        }`}
                     >
                       {d} km
                     </button>

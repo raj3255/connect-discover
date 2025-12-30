@@ -2,73 +2,177 @@ import { useState, useRef, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { ArrowLeft, MoreVertical, Send, Image, Smile } from 'lucide-react';
-import { mockUsers, mockMessages } from '@/data/mockUsers';
-import { Message } from '@/types';
 import { StatusIndicator } from '@/components/StatusIndicator';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { formatDistanceToNow } from 'date-fns';
+import ApiService from '@/services/apiServices';
+import SocketService from '@/services/SocketService';
+import { useAuth } from '@/contexts/AuthContext';
+import { useToast } from '@/hooks/use-toast';
+
+interface Message {
+  id: string;
+  conversationId: string;
+  senderId: string;
+  text: string;
+  createdAt: Date;
+  isRead: boolean;
+}
 
 export default function Chat() {
-  const { userId } = useParams();
+  const { conversationId } = useParams();
   const navigate = useNavigate();
+  const { user: currentUser } = useAuth();
+  const { toast } = useToast();
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  
-  const user = mockUsers.find(u => u.id === userId);
-  const [messages, setMessages] = useState<Message[]>(mockMessages);
+
+  const [otherUser, setOtherUser] = useState<any>(null);
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [loading, setLoading] = useState(true);
   const [newMessage, setNewMessage] = useState('');
   const [isTyping, setIsTyping] = useState(false);
+  const typingTimeoutRef = useRef<NodeJS.Timeout>();
 
-  const currentUserId = '1'; // Mock current user
-
+  // Scroll to bottom when messages change
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  // Simulate typing indicator
+  // Single useEffect to fetch conversation, messages, and setup socket
   useEffect(() => {
-    if (newMessage) {
-      setIsTyping(false);
-    }
-  }, [newMessage]);
+    if (!conversationId || !currentUser) return;
 
-  const handleSend = () => {
-    if (!newMessage.trim()) return;
+    console.log('Chat effect running', { conversationId, currentUser });
 
-    const message: Message = {
-      id: Date.now().toString(),
-      conversationId: 'conv1',
-      senderId: currentUserId,
-      content: newMessage,
-      timestamp: new Date(),
-      read: false,
-      type: 'text',
+    // Fetch conversation and messages
+    fetchConversation();
+    fetchMessages();
+
+    // Join chat room
+    SocketService.joinChat(conversationId);
+
+    // Socket listeners
+    SocketService.onNewMessage((message) => {
+      setMessages(prev => [
+        ...prev,
+        { ...message, createdAt: new Date(message.createdAt) }
+      ]);
+    });
+
+    SocketService.onUserTyping(({ userId }) => {
+      if (userId !== currentUser.id) setIsTyping(true);
+    });
+
+    SocketService.onUserStoppedTyping(({ userId }) => {
+      if (userId !== currentUser.id) setIsTyping(false);
+    });
+
+    // Cleanup
+    return () => {
+      SocketService.leaveChat(conversationId);
+      SocketService.off('chat:new_message');
+      SocketService.off('typing:user_typing');
+      SocketService.off('typing:user_stopped');
     };
+  }, [conversationId, currentUser?.id]);
 
-    setMessages(prev => [...prev, message]);
-    setNewMessage('');
-
-    // Simulate response
-    setTimeout(() => {
-      setIsTyping(true);
-      setTimeout(() => {
-        setIsTyping(false);
-        const response: Message = {
-          id: (Date.now() + 1).toString(),
-          conversationId: 'conv1',
-          senderId: userId || '2',
-          content: 'Thanks for the message! 😊',
-          timestamp: new Date(),
-          read: false,
-          type: 'text',
-        };
-        setMessages(prev => [...prev, response]);
-      }, 2000);
-    }, 1000);
+  const fetchConversation = async () => {
+    try {
+      const response = await ApiService.getConversation(conversationId!);
+      if (response.conversation) {
+        setOtherUser(response.conversation.otherUser);
+      }
+    } catch (error) {
+      toast({
+        title: 'Error',
+        description: 'Failed to load conversation',
+        variant: 'destructive',
+      });
+      navigate('/messages');
+    }
   };
 
-  if (!user) {
-    navigate('/messages');
+  const fetchMessages = async () => {
+    try {
+      setLoading(true);
+      const response = await ApiService.getMessages(conversationId!);
+      if (response.messages) {
+        setMessages(response.messages.map((msg: any) => ({
+          ...msg,
+          createdAt: new Date(msg.created_at)
+        })));
+      }
+    } catch (error) {
+      toast({
+        title: 'Error',
+        description: 'Failed to load messages',
+        variant: 'destructive',
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSend = async () => {
+    if (!newMessage.trim() || !conversationId) return;
+
+    const tempMessage: Message = {
+      id: `temp-${Date.now()}`,
+      conversationId,
+      senderId: currentUser!.id,
+      text: newMessage,
+      createdAt: new Date(),
+      isRead: false,
+    };
+
+    setMessages(prev =>
+      prev.some(m => m.id.startsWith('temp-'))
+        ? prev
+        : [...prev, tempMessage]
+    );
+    const messageText = newMessage;
+    setNewMessage('');
+
+    // Stop typing indicator
+    if (typingTimeoutRef.current) {
+      clearTimeout(typingTimeoutRef.current);
+    }
+    SocketService.stopTyping(conversationId);
+
+    // Send via socket
+    SocketService.sendMessage(conversationId, messageText);
+  };
+
+  const handleTyping = (value: string) => {
+    setNewMessage(value);
+
+    if (value && conversationId) {
+      SocketService.startTyping(conversationId);
+
+      // Clear existing timeout
+      if (typingTimeoutRef.current) {
+        clearTimeout(typingTimeoutRef.current);
+      }
+
+      // Stop typing after 2 seconds of no input
+      typingTimeoutRef.current = setTimeout(() => {
+        SocketService.stopTyping(conversationId);
+      }, 2000);
+    } else if (conversationId) {
+      SocketService.stopTyping(conversationId);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
+      </div>
+    );
+  }
+
+  if (!otherUser && !loading) {
     return null;
   }
 
@@ -81,27 +185,25 @@ export default function Chat() {
             <Button variant="ghost" size="icon-sm" onClick={() => navigate(-1)}>
               <ArrowLeft className="h-5 w-5" />
             </Button>
-            
+
             <button
-              onClick={() => navigate(`/user/${user.id}`)}
+              onClick={() => navigate(`/user/${otherUser?.id}`)}
               className="flex items-center gap-3"
             >
               <div className="relative">
                 <img
-                  src={user.avatar}
-                  alt={user.name}
+                  src={otherUser?.avatar_url || '/placeholder.svg'}
+                  alt={otherUser?.name}
                   className="h-10 w-10 rounded-full object-cover"
                 />
                 <div className="absolute bottom-0 right-0 p-0.5 bg-card rounded-full">
-                  <StatusIndicator status={user.status} size="sm" />
+                  <StatusIndicator status="online" size="sm" />
                 </div>
               </div>
-              
+
               <div className="text-left">
-                <h2 className="font-semibold text-foreground">{user.name}</h2>
-                <p className="text-xs text-muted-foreground">
-                  {user.status === 'online' ? 'Online' : 'Last seen recently'}
-                </p>
+                <h2 className="font-semibold text-foreground">{otherUser?.name}</h2>
+                <p className="text-xs text-muted-foreground">Online</p>
               </div>
             </button>
           </div>
@@ -115,9 +217,9 @@ export default function Chat() {
       {/* Messages */}
       <main className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
         {messages.map((msg, index) => {
-          const isOwn = msg.senderId === currentUserId;
+          const isOwn = msg.senderId === currentUser?.id;
           const showAvatar = !isOwn && (index === 0 || messages[index - 1].senderId !== msg.senderId);
-          
+
           return (
             <motion.div
               key={msg.id}
@@ -129,14 +231,14 @@ export default function Chat() {
                 <div className="w-8 shrink-0">
                   {showAvatar && (
                     <img
-                      src={user.avatar}
-                      alt={user.name}
+                      src={otherUser?.avatar_url || '/placeholder.svg'}
+                      alt={otherUser?.name}
                       className="h-8 w-8 rounded-full object-cover"
                     />
                   )}
                 </div>
               )}
-              
+
               <div
                 className={`max-w-[75%] px-4 py-3 rounded-2xl ${
                   isOwn
@@ -144,15 +246,15 @@ export default function Chat() {
                     : 'bg-secondary text-foreground rounded-bl-sm'
                 }`}
               >
-                <p className="text-sm">{msg.content}</p>
+                <p className="text-sm">{msg.text}</p>
                 <p className={`text-[10px] mt-1 ${isOwn ? 'text-primary-foreground/70' : 'text-muted-foreground'}`}>
-                  {formatDistanceToNow(msg.timestamp, { addSuffix: true })}
+                  {formatDistanceToNow(msg.createdAt, { addSuffix: true })}
                 </p>
               </div>
             </motion.div>
           );
         })}
-        
+
         {/* Typing Indicator */}
         {isTyping && (
           <motion.div
@@ -160,7 +262,11 @@ export default function Chat() {
             animate={{ opacity: 1 }}
             className="flex items-center gap-2"
           >
-            <img src={user.avatar} alt={user.name} className="h-8 w-8 rounded-full object-cover" />
+            <img
+              src={otherUser?.avatar_url || '/placeholder.svg'}
+              alt={otherUser?.name}
+              className="h-8 w-8 rounded-full object-cover"
+            />
             <div className="px-4 py-3 rounded-2xl bg-secondary rounded-bl-sm">
               <div className="flex gap-1">
                 {[0, 1, 2].map(i => (
@@ -175,7 +281,7 @@ export default function Chat() {
             </div>
           </motion.div>
         )}
-        
+
         <div ref={messagesEndRef} />
       </main>
 
@@ -185,12 +291,12 @@ export default function Chat() {
           <Button variant="ghost" size="icon-sm">
             <Image className="h-5 w-5" />
           </Button>
-          
+
           <div className="flex-1 relative">
             <Input
               placeholder="Type a message..."
               value={newMessage}
-              onChange={(e) => setNewMessage(e.target.value)}
+              onChange={(e) => handleTyping(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && handleSend()}
               className="pr-10"
             />
@@ -198,7 +304,7 @@ export default function Chat() {
               <Smile className="h-5 w-5" />
             </button>
           </div>
-          
+
           <Button
             variant="gradient"
             size="icon"
