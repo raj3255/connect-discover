@@ -5,7 +5,7 @@ type SocketIO = ReturnType<typeof io>;
 class SocketService {
   private static instance: SocketService;
   private socket: SocketIO | null = null;
-  private isSearching: boolean = false;
+  private isSearching: boolean = false; // Track if already searching
 
   private constructor() {}
 
@@ -45,7 +45,7 @@ class SocketService {
 
     this.socket.on('disconnect', () => {
       console.log('❌ Socket disconnected');
-      this.isSearching = false;
+      this.isSearching = false; // Reset on disconnect
     });
 
     this.socket.on('error', (error) => {
@@ -56,6 +56,7 @@ class SocketService {
       console.log('✅ Socket connection success:', data);
     });
 
+    // Listen for match events to update search state
     this.socket.on('match:found', () => {
       this.isSearching = false;
     });
@@ -246,7 +247,6 @@ class SocketService {
   onPartnerSkipped(callback: () => void): void {
     this.on('match:partner_skipped', callback);
   }
-
   // ============================================================================
   // WEBRTC METHODS - Video Call Signaling
   // ============================================================================
@@ -333,6 +333,42 @@ class SocketService {
 
   onGlobalMatch(callback: (user: any) => void): void {
     this.on('match:found', callback);
+  }
+
+  // ============================================================================
+  // LOCAL MODE METHODS (DISTANCE-BASED MATCHING)
+  // ============================================================================
+
+  startLocalSearch(data: {
+    mode: 'chat' | 'video';
+    maxDistance: number;
+    ageRange: [number, number];
+    genderPreference: string;
+  }): void {
+    console.log('🗺️ Starting LOCAL search:', data);
+    this.emit('local_match:start_searching', data);
+  }
+
+  cancelLocalSearch(): void {
+    console.log('⏹️ Stopping LOCAL search');
+    this.emit('local_match:stop_searching');
+  }
+
+  skipLocalMatch(matchId: string): void {
+    console.log('⏭️ Skipping LOCAL match:', matchId);
+    this.emit('local_match:skip', matchId);
+  }
+
+  onLocalMatchFound(callback: (data: any) => void): void {
+    this.on('local_match:found', callback);
+  }
+
+  onLocalPartnerLeft(callback: () => void): void {
+    this.on('local_match:partner_left', callback);
+  }
+
+  onLocalPartnerSkipped(callback: () => void): void {
+    this.on('local_match:partner_skipped', callback);
   }
 }
 
