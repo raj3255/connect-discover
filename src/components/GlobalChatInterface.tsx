@@ -1,23 +1,28 @@
+/// GlobalChatInterface.tsx
+/// This is the main chat interface used in GlobalMode when two users are connected.
+/// It handles text messaging, shows typing indicators, and has options to switch to video, skip, report/block user, and share album.
 import { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { 
-  Send, 
-  Video, 
-  SkipForward, 
-  X, 
-  Image as ImageIcon,
+import EmojiPicker, { EmojiClickData } from 'emoji-picker-react';
+import {
+  Send,
+  Video,
+  SkipForward,
+  X,
   Smile,
   MoreVertical,
   Flag,
   Ban,
   Share2
 } from 'lucide-react';
+import SocketService from '@/services/SocketService';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { User } from '@/types';
 import { StatusIndicator } from '@/components/StatusIndicator';
 import { UserActionsModal } from '@/components/UserActionsModal';
-
+import { AlbumShareButton } from './AlbumShareButton';
+import { useNavigate } from 'react-router-dom';
 interface ChatMessage {
   id: string;
   content: string;
@@ -29,17 +34,19 @@ interface ChatMessage {
 interface GlobalChatInterfaceProps {
   user: User;
   currentUserId: string;
+  conversationId: string;
   onEndChat: () => void;
   onSwitchToVideo: () => void;
   onSkip: () => void;
 }
 
-export function GlobalChatInterface({ 
-  user, 
+export function GlobalChatInterface({
+  user,
   currentUserId,
-  onEndChat, 
-  onSwitchToVideo, 
-  onSkip 
+  conversationId,
+  onEndChat,
+  onSwitchToVideo,
+  onSkip
 }: GlobalChatInterfaceProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([
     {
@@ -56,11 +63,18 @@ export function GlobalChatInterface({
   const [actionType, setActionType] = useState<'block' | 'report' | 'share' | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const [chatDuration, setChatDuration] = useState(0);
-
+  const [showEmoji, setShowEmoji] = useState(false);
   // Auto-scroll to bottom
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
+
+  useEffect(() => {
+    if (!showEmoji) return;
+    const handler = () => setShowEmoji(false);
+    document.addEventListener('click', handler);
+    return () => document.removeEventListener('click', handler);
+  }, [showEmoji]);
 
   // Chat duration timer
   useEffect(() => {
@@ -72,37 +86,42 @@ export function GlobalChatInterface({
 
   // Simulate typing indicator
   useEffect(() => {
-    const typingTimeout = setTimeout(() => {
-      if (messages.length > 1 && messages.length < 5) {
-        setIsTyping(true);
-        setTimeout(() => {
-          setIsTyping(false);
-          // Simulate a response
-          const responses = [
-            "Hey! Nice to meet you 😊",
-            "Where are you from?",
-            "What brings you here today?",
-            "I love meeting new people!",
-          ];
-          const response = responses[Math.floor(Math.random() * responses.length)];
-          setMessages(prev => [...prev, {
-            id: Date.now().toString(),
-            content: response,
-            senderId: user.id,
-            timestamp: new Date(),
-            type: 'text',
-          }]);
-        }, 2000);
-      }
-    }, 3000);
+    if (!conversationId) return;
+    SocketService.joinChat(conversationId);
 
-    return () => clearTimeout(typingTimeout);
-  }, [messages.length, user.id]);
+    SocketService.onNewMessage((message) => {
+      setMessages(prev => [...prev, {
+        id: message.id,
+        content: message.text,
+        senderId: message.senderId,
+        timestamp: new Date(message.createdAt),
+        type: 'text',
+      }]);
+    });
+
+    SocketService.onUserTyping(({ userId }) => {
+      if (userId !== currentUserId) setIsTyping(true);
+    });
+
+    SocketService.onUserStoppedTyping(({ userId }) => {
+      if (userId !== currentUserId) setIsTyping(false);
+    });
+
+    return () => {
+      SocketService.leaveChat(conversationId);
+      SocketService.off('chat:new_message');
+      SocketService.off('typing:user_typing');
+      SocketService.off('typing:user_stopped');
+    };
+  }, [conversationId]);
+
+  // Replace sendMessage
+  const typingTimeoutRef = useRef<NodeJS.Timeout>();
 
   const sendMessage = () => {
-    if (!inputValue.trim()) return;
+    if (!inputValue.trim() || !conversationId) return;
 
-    const newMessage: ChatMessage = {
+    const newMsg: ChatMessage = {
       id: Date.now().toString(),
       content: inputValue.trim(),
       senderId: currentUserId,
@@ -110,8 +129,21 @@ export function GlobalChatInterface({
       type: 'text',
     };
 
-    setMessages(prev => [...prev, newMessage]);
+    setMessages(prev => [...prev, newMsg]);
+    SocketService.sendMessage(conversationId, inputValue.trim());
     setInputValue('');
+    SocketService.stopTyping(conversationId);
+  };
+
+  const handleTyping = (value: string) => {
+    setInputValue(value);
+    if (value && conversationId) {
+      SocketService.startTyping(conversationId);
+      if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+      typingTimeoutRef.current = setTimeout(() => {
+        SocketService.stopTyping(conversationId);
+      }, 2000);
+    }
   };
 
   const handleKeyPress = (e: React.KeyboardEvent) => {
@@ -120,7 +152,8 @@ export function GlobalChatInterface({
       sendMessage();
     }
   };
-
+  // inside component:
+  const navigate = useNavigate();
   const formatTime = (date: Date) => {
     return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   };
@@ -144,18 +177,21 @@ export function GlobalChatInterface({
           <Button variant="ghost" size="icon" onClick={onEndChat}>
             <X className="h-5 w-5" />
           </Button>
-          
+
           <div className="relative">
             <img
-              src={user.avatar}
+              src={user.avatar?.startsWith('http')
+                ? user.avatar
+                : `http://localhost:5000${user.avatar || ''}`}
               alt={user.name}
               className="h-10 w-10 rounded-full object-cover"
+              onError={(e) => { (e.target as HTMLImageElement).src = '/placeholder.svg'; }}
             />
             <div className="absolute bottom-0 right-0">
               <StatusIndicator status={user.status} size="sm" />
             </div>
           </div>
-          
+
           <div>
             <h3 className="font-semibold text-foreground">{user.name}, {user.age}</h3>
             <p className="text-xs text-muted-foreground">
@@ -173,7 +209,7 @@ export function GlobalChatInterface({
           >
             <Video className="h-5 w-5" />
           </Button>
-          
+
           <div className="relative">
             <Button
               variant="ghost"
@@ -182,7 +218,7 @@ export function GlobalChatInterface({
             >
               <MoreVertical className="h-5 w-5" />
             </Button>
-            
+
             <AnimatePresence>
               {showActions && (
                 <motion.div
@@ -192,11 +228,14 @@ export function GlobalChatInterface({
                   className="absolute right-0 top-full mt-2 w-48 bg-card rounded-xl shadow-lg border border-border overflow-hidden z-50"
                 >
                   <button
-                    onClick={() => handleAction('share')}
+                    onClick={() => {
+                      setShowActions(false);
+                      navigate(`/album-sharing?userId=${user.id}&userName=${encodeURIComponent(user.name)}`);
+                    }}
                     className="w-full flex items-center gap-3 px-4 py-3 hover:bg-secondary transition-colors"
                   >
                     <Share2 className="h-4 w-4 text-muted-foreground" />
-                    <span className="text-sm text-foreground">Share Profile</span>
+                    <span className="text-sm text-foreground">Share Album</span>
                   </button>
                   <button
                     onClick={() => handleAction('report')}
@@ -226,13 +265,12 @@ export function GlobalChatInterface({
             key={message.id}
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
-            className={`flex ${
-              message.type === 'system' 
-                ? 'justify-center' 
-                : message.senderId === currentUserId 
-                  ? 'justify-end' 
-                  : 'justify-start'
-            }`}
+            className={`flex ${message.type === 'system'
+              ? 'justify-center'
+              : message.senderId === currentUserId
+                ? 'justify-end'
+                : 'justify-start'
+              }`}
           >
             {message.type === 'system' ? (
               <div className="px-4 py-2 bg-secondary/50 rounded-full">
@@ -240,18 +278,16 @@ export function GlobalChatInterface({
               </div>
             ) : (
               <div
-                className={`max-w-[75%] px-4 py-3 rounded-2xl ${
-                  message.senderId === currentUserId
-                    ? 'bg-primary text-primary-foreground rounded-br-md'
-                    : 'bg-secondary text-foreground rounded-bl-md'
-                }`}
+                className={`max-w-[75%] px-4 py-3 rounded-2xl ${message.senderId === currentUserId
+                  ? 'bg-primary text-primary-foreground rounded-br-md'
+                  : 'bg-secondary text-foreground rounded-bl-md'
+                  }`}
               >
                 <p className="text-sm">{message.content}</p>
-                <p className={`text-[10px] mt-1 ${
-                  message.senderId === currentUserId 
-                    ? 'text-primary-foreground/70' 
-                    : 'text-muted-foreground'
-                }`}>
+                <p className={`text-[10px] mt-1 ${message.senderId === currentUserId
+                  ? 'text-primary-foreground/70'
+                  : 'text-muted-foreground'
+                  }`}>
                   {formatTime(message.timestamp)}
                 </p>
               </div>
@@ -309,27 +345,37 @@ export function GlobalChatInterface({
       {/* Input */}
       <div className="p-4 border-t border-border bg-card">
         <div className="flex items-center gap-2">
-          <Button variant="ghost" size="icon" className="flex-shrink-0">
-            <ImageIcon className="h-5 w-5 text-muted-foreground" />
-          </Button>
-          
           <div className="flex-1 relative">
             <Input
               value={inputValue}
-              onChange={(e) => setInputValue(e.target.value)}
+              onChange={(e) => handleTyping(e.target.value)}
               onKeyPress={handleKeyPress}
               placeholder="Type a message..."
               className="pr-10 rounded-full bg-secondary border-0"
             />
-            <Button
-              variant="ghost"
-              size="icon"
-              className="absolute right-1 top-1/2 -translate-y-1/2 h-8 w-8"
+            <button
+              onClick={(e) => { e.stopPropagation(); setShowEmoji(prev => !prev); }}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
             >
-              <Smile className="h-5 w-5 text-muted-foreground" />
-            </Button>
+              <Smile className="h-5 w-5" />
+            </button>
+
+            {showEmoji && (
+              <div className="absolute bottom-12 right-0 z-50">
+                <EmojiPicker
+                  onEmojiClick={(e: EmojiClickData) => {
+                    setInputValue(prev => prev + e.emoji);
+                    setShowEmoji(false);
+                  }}
+                  height={350}
+                  width={300}
+                />
+              </div>
+            )}
           </div>
-          
+
+          <AlbumShareButton recipientUserId={user.id} recipientName={user.name} />
+
           <Button
             onClick={sendMessage}
             disabled={!inputValue.trim()}

@@ -27,7 +27,7 @@ export default function GlobalMode() {
   const [searchTime, setSearchTime] = useState(0);
   const [currentMode, setCurrentMode] = useState<'chat' | 'video'>('chat');
   const [preferences, setPreferences] = useState<MatchPreferencesData | null>(null);
-  
+  const [isInitiator, setIsInitiator] = useState(false);
   // Refs to prevent double operations
   const isConnectingRef = useRef(false);
   const isSearchingRef = useRef(false);
@@ -64,16 +64,17 @@ export default function GlobalMode() {
   useEffect(() => {
     const handleMatchFound = (data: any) => {
       console.log('🎉 Match found event received:', data);
-      
+
       // Prevent processing if already navigating
       if (hasNavigatedRef.current) {
         console.log('⚠️ Already navigated, ignoring match event');
         return;
       }
-      
+
       setMatchedUser(data.partner);
       setMatchId(data.matchId);
       setConversationId(data.conversationId);
+      setIsInitiator(data.isInitiator);
       setMatchState('matched');
       isConnectingRef.current = false;
       isSearchingRef.current = false;
@@ -101,11 +102,11 @@ export default function GlobalMode() {
   // Cleanup on unmount - ONLY CANCEL IF ACTUALLY SEARCHING
   useEffect(() => {
     mountedRef.current = true;
-    
+
     return () => {
       mountedRef.current = false;
       console.log('🧹 GlobalMode unmounting');
-      
+
       // Only cancel if we're actively searching and haven't navigated
       if (isSearchingRef.current && !hasNavigatedRef.current) {
         console.log('⏹️ Cancelling search on unmount');
@@ -159,10 +160,10 @@ export default function GlobalMode() {
 
     isConnectingRef.current = true;
     setMatchState('connecting');
-    
+
     // Mark as no longer searching
     isSearchingRef.current = false;
-    
+
     // If video mode, stay on this page and switch to connected state
     if (currentMode === 'video') {
       console.log('✅ Starting video call');
@@ -182,7 +183,7 @@ export default function GlobalMode() {
       console.log('⚠️ Not searching, nothing to cancel');
       return;
     }
-    
+
     console.log('⏹️ User cancelled search');
     SocketService.cancelGlobalSearch();
     setMatchState('preferences');
@@ -246,8 +247,8 @@ export default function GlobalMode() {
       return (
         <VideoCallInterface
           user={matchedUser}
-          conversationId={conversationId}
-          isInitiator={true} // In global mode, the user who clicks "Start Video" is the initiator
+          conversationId={conversationId!}
+          isInitiator={isInitiator} // In global mode, the user who clicks "Start Video" is the initiator
           onEndCall={endConnection}
           onSwitchToChat={switchToChat}
           onSkip={skipMatch}
@@ -258,6 +259,7 @@ export default function GlobalMode() {
     return (
       <GlobalChatInterface
         user={matchedUser}
+        conversationId={conversationId}
         currentUserId={currentUser.id}
         onEndChat={endConnection}
         onSwitchToVideo={switchToVideo}
@@ -337,7 +339,7 @@ export default function GlobalMode() {
                 Match with someone from around the world
               </p>
 
-              <MatchPreferences 
+              <MatchPreferences
                 onStart={startSearching}
                 isLoading={isSearchingRef.current}
               />
@@ -406,9 +408,12 @@ export default function GlobalMode() {
                   className="relative w-28 h-28 mx-auto mb-4"
                 >
                   <img
-                    src={matchedUser.avatar}
+                    src={matchedUser.avatar?.startsWith('http')
+                      ? matchedUser.avatar
+                      : `${import.meta.env.VITE_API_URL?.replace('/api', '') || 'http://localhost:5000'}${matchedUser.avatar || ''}`}
                     alt={matchedUser.name}
                     className="w-full h-full rounded-full object-cover border-4 border-primary shadow-glow"
+                    onError={(e) => { (e.target as HTMLImageElement).src = '/placeholder.svg'; }}
                   />
                   <div className="absolute bottom-0 right-0 p-1 bg-card rounded-full border-2 border-card">
                     <StatusIndicator status={matchedUser.status} size="lg" showRing />
@@ -454,22 +459,22 @@ export default function GlobalMode() {
 
                 {/* Actions */}
                 <div className="flex gap-3">
-                  <Button 
-                    variant="outline" 
-                    className="flex-1" 
+                  <Button
+                    variant="outline"
+                    className="flex-1"
                     onClick={skipMatch}
                     disabled={matchState === 'connecting'}
                   >
                     Skip
                   </Button>
-                  <Button 
-                    variant="gradient" 
-                    className="flex-1" 
+                  <Button
+                    variant="gradient"
+                    className="flex-1"
                     onClick={connectToMatch}
                     disabled={matchState === 'connecting'}
                   >
-                    {matchState === 'connecting' 
-                      ? 'Connecting...' 
+                    {matchState === 'connecting'
+                      ? 'Connecting...'
                       : currentMode === 'video' ? 'Start Video' : 'Start Chat'}
                   </Button>
                 </div>

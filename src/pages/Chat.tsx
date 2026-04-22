@@ -1,7 +1,10 @@
+/// Chat.tsx
+/// This is the main chat interface used in both LocalMode and GlobalMode when two users are connected.
+/// It handles text messaging, shows typing indicators, and includes the AlbumShareButton to share/unshare albums with the chat partner.
 import { useState, useRef, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { motion } from 'framer-motion';
-import { ArrowLeft, MoreVertical, Send, Image, Smile } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { ArrowLeft, MoreVertical, Send, Smile, Share2, Flag, Ban } from 'lucide-react';
 import { StatusIndicator } from '@/components/StatusIndicator';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -10,6 +13,9 @@ import ApiService from '@/services/apiServices';
 import SocketService from '@/services/SocketService';
 import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/hooks/use-toast';
+import { AlbumShareButton } from '@/components/AlbumShareButton';
+import EmojiPicker, { EmojiClickData } from 'emoji-picker-react';
+import { UserActionsModal } from '@/components/UserActionsModal';
 
 interface Message {
   id: string;
@@ -27,17 +33,33 @@ export default function Chat() {
   const { toast } = useToast();
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
+  const [showMenu, setShowMenu] = useState(false);
   const [otherUser, setOtherUser] = useState<any>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [loading, setLoading] = useState(true);
   const [newMessage, setNewMessage] = useState('');
   const [isTyping, setIsTyping] = useState(false);
   const typingTimeoutRef = useRef<NodeJS.Timeout>();
-
+  const [showEmoji, setShowEmoji] = useState(false);
+  const [actionType, setActionType] = useState<'block' | 'report' | null>(null);
   // Scroll to bottom when messages change
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
+
+  useEffect(() => {
+    if (!showMenu) return;
+    const handler = () => setShowMenu(false);
+    document.addEventListener('click', handler);
+    return () => document.removeEventListener('click', handler);
+  }, [showMenu]);
+
+  useEffect(() => {
+    if (!showEmoji) return;
+    const handler = () => setShowEmoji(false);
+    document.addEventListener('click', handler);
+    return () => document.removeEventListener('click', handler);
+  }, [showEmoji]);
 
   // Single useEffect to fetch conversation, messages, and setup socket
   useEffect(() => {
@@ -186,21 +208,24 @@ export default function Chat() {
               <ArrowLeft className="h-5 w-5" />
             </Button>
 
+            {/* Profile button — only avatar + name, nothing else inside */}
             <button
               onClick={() => navigate(`/user/${otherUser?.id}`)}
               className="flex items-center gap-3"
             >
               <div className="relative">
                 <img
-                  src={otherUser?.avatar_url || '/placeholder.svg'}
+                  src={otherUser?.avatar_url?.startsWith('http')
+                    ? otherUser.avatar_url
+                    : `http://localhost:5000${otherUser?.avatar_url || ''}`}
                   alt={otherUser?.name}
                   className="h-10 w-10 rounded-full object-cover"
+                  onError={(e) => { (e.target as HTMLImageElement).src = '/placeholder.svg'; }}
                 />
                 <div className="absolute bottom-0 right-0 p-0.5 bg-card rounded-full">
                   <StatusIndicator status="online" size="sm" />
                 </div>
               </div>
-
               <div className="text-left">
                 <h2 className="font-semibold text-foreground">{otherUser?.name}</h2>
                 <p className="text-xs text-muted-foreground">Online</p>
@@ -208,12 +233,51 @@ export default function Chat() {
             </button>
           </div>
 
-          <Button variant="ghost" size="icon-sm">
-            <MoreVertical className="h-5 w-5" />
-          </Button>
+          {/* Three dot menu */}
+          <div className="relative">
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              onClick={(e) => { e.stopPropagation(); setShowMenu(prev => !prev); }}
+            >
+              <MoreVertical className="h-5 w-5" />
+            </Button>
+
+            <AnimatePresence>
+              {showMenu && (
+                <motion.div
+                  initial={{ opacity: 0, scale: 0.95, y: -10 }}
+                  animate={{ opacity: 1, scale: 1, y: 0 }}
+                  exit={{ opacity: 0, scale: 0.95, y: -10 }}
+                  className="absolute right-0 top-full mt-2 w-48 bg-card rounded-xl shadow-lg border border-border overflow-hidden z-50"
+                >
+                  <button
+                    onClick={() => { setShowMenu(false); navigate(`/album-sharing?userId=${otherUser?.id}&userName=${encodeURIComponent(otherUser?.name || '')}`); }}
+                    className="w-full flex items-center gap-3 px-4 py-3 hover:bg-secondary transition-colors"
+                  >
+                    <Share2 className="h-4 w-4 text-muted-foreground" />
+                    <span className="text-sm text-foreground">Share Album</span>
+                  </button>
+                  <button
+                    onClick={() => { setShowMenu(false); setActionType('report'); }}
+                    className="w-full flex items-center gap-3 px-4 py-3 hover:bg-secondary transition-colors"
+                  >
+                    <Flag className="h-4 w-4 text-muted-foreground" />
+                    <span className="text-sm text-foreground">Report</span>
+                  </button>
+                  <button
+                    onClick={() => { setShowMenu(false); setActionType('block'); }}
+                    className="w-full flex items-center gap-3 px-4 py-3 hover:bg-secondary transition-colors text-destructive"
+                  >
+                    <Ban className="h-4 w-4" />
+                    <span className="text-sm">Block User</span>
+                  </button>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
         </div>
       </header>
-
       {/* Messages */}
       <main className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
         {messages.map((msg, index) => {
@@ -231,7 +295,9 @@ export default function Chat() {
                 <div className="w-8 shrink-0">
                   {showAvatar && (
                     <img
-                      src={otherUser?.avatar_url || '/placeholder.svg'}
+                      src={otherUser?.avatar_url?.startsWith('http')
+                        ? otherUser.avatar_url
+                        : `http://localhost:5000${otherUser?.avatar_url || ''}`}
                       alt={otherUser?.name}
                       className="h-8 w-8 rounded-full object-cover"
                     />
@@ -240,11 +306,10 @@ export default function Chat() {
               )}
 
               <div
-                className={`max-w-[75%] px-4 py-3 rounded-2xl ${
-                  isOwn
-                    ? 'gradient-primary text-primary-foreground rounded-br-sm'
-                    : 'bg-secondary text-foreground rounded-bl-sm'
-                }`}
+                className={`max-w-[75%] px-4 py-3 rounded-2xl ${isOwn
+                  ? 'gradient-primary text-primary-foreground rounded-br-sm'
+                  : 'bg-secondary text-foreground rounded-bl-sm'
+                  }`}
               >
                 <p className="text-sm">{msg.text}</p>
                 <p className={`text-[10px] mt-1 ${isOwn ? 'text-primary-foreground/70' : 'text-muted-foreground'}`}>
@@ -263,7 +328,9 @@ export default function Chat() {
             className="flex items-center gap-2"
           >
             <img
-              src={otherUser?.avatar_url || '/placeholder.svg'}
+              src={otherUser?.avatar_url?.startsWith('http')
+                ? otherUser.avatar_url
+                : `http://localhost:5000${otherUser?.avatar_url || ''}`}
               alt={otherUser?.name}
               className="h-8 w-8 rounded-full object-cover"
             />
@@ -288,10 +355,8 @@ export default function Chat() {
       {/* Input */}
       <div className="sticky bottom-0 glass safe-area-bottom">
         <div className="flex items-center gap-2 px-4 py-3">
-          <Button variant="ghost" size="icon-sm">
-            <Image className="h-5 w-5" />
-          </Button>
 
+          {/* Input + emoji button together */}
           <div className="flex-1 relative">
             <Input
               placeholder="Type a message..."
@@ -300,10 +365,35 @@ export default function Chat() {
               onKeyDown={(e) => e.key === 'Enter' && handleSend()}
               className="pr-10"
             />
-            <button className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
+            {/* Emoji button positioned inside the input */}
+            <button
+              onClick={(e) => { e.stopPropagation(); setShowEmoji(prev => !prev); }}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+            >
               <Smile className="h-5 w-5" />
             </button>
+
+            {/* Emoji picker floats above the input bar */}
+            {showEmoji && (
+              <div className="absolute bottom-12 right-0 z-50">
+                <EmojiPicker
+                  onEmojiClick={(e: EmojiClickData) => {
+                    setNewMessage(prev => prev + e.emoji);
+                    setShowEmoji(false);
+                  }}
+                  height={350}
+                  width={300}
+                />
+              </div>
+            )}
           </div>
+
+          {otherUser && (
+            <AlbumShareButton
+              recipientUserId={otherUser.id}
+              recipientName={otherUser.name}
+            />
+          )}
 
           <Button
             variant="gradient"
@@ -315,6 +405,14 @@ export default function Chat() {
           </Button>
         </div>
       </div>
+      <UserActionsModal
+        isOpen={actionType !== null}
+        onClose={() => setActionType(null)}
+        action={actionType}
+        userName={otherUser?.name}
+        userId={otherUser?.id}
+      />
     </div>
+
   );
 }

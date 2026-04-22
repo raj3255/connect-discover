@@ -314,64 +314,95 @@ class ApiService {
   // ALBUM ENDPOINTS
   // ============================================================================
 
-  static async getAlbums() {
+  static async getMyAlbums() {
     const res = await fetch(`${API_BASE}/albums`, {
-      headers: this.getHeaders()
-    });
-    return res.json();
-  }
-
-  static async createAlbum(name: string) {
-    const res = await fetch(`${API_BASE}/albums`, {
-      method: 'POST',
       headers: this.getHeaders(),
-      body: JSON.stringify({ name })
     });
     return res.json();
   }
 
-  static async getAlbum(albumId: string) {
-    const res = await fetch(`${API_BASE}/albums/${albumId}`, {
-      headers: this.getHeaders()
-    });
-    return res.json();
-  }
-
-  static async updateAlbum(albumId: string, name: string) {
-    const res = await fetch(`${API_BASE}/albums/${albumId}`, {
-      method: 'PUT',
-      headers: this.getHeaders(),
-      body: JSON.stringify({ name })
-    });
-    return res.json();
-  }
-
-  static async deleteAlbum(albumId: string) {
-    const res = await fetch(`${API_BASE}/albums/${albumId}`, {
-      method: 'DELETE',
-      headers: this.getHeaders()
-    });
-    return res.json();
-  }
-
-  static async uploadPhoto(albumId: string, file: File) {
+  static async uploadAlbumPhoto(file: File, caption?: string, isPublic = false) {
     const formData = new FormData();
     formData.append('photo', file);
+    if (caption) formData.append('caption', caption);
+    formData.append('isPublic', String(isPublic));
 
-    const res = await fetch(`${API_BASE}/albums/${albumId}/photos`, {
+    const res = await fetch(`${API_BASE}/albums/upload`, {
       method: 'POST',
       headers: {
-        ...(this.token && { Authorization: `Bearer ${this.token}` })
+        ...(this.token && { Authorization: `Bearer ${this.token}` }),
       },
-      body: formData
+      body: formData,
     });
     return res.json();
   }
 
-  static async deletePhoto(albumId: string, photoId: string) {
-    const res = await fetch(`${API_BASE}/albums/${albumId}/photos/${photoId}`, {
+  static async deleteAlbumPhoto(albumId: string) {
+    const res = await fetch(`${API_BASE}/albums/${albumId}`, {
       method: 'DELETE',
-      headers: this.getHeaders()
+      headers: this.getHeaders(),
+    });
+    return res.json();
+  }
+
+  static async shareAlbumWithUser(albumId: string, recipientUserId: string) {
+    const res = await fetch(`${API_BASE}/albums/${albumId}/share`, {
+      method: 'POST',
+      headers: this.getHeaders(),
+      body: JSON.stringify({ recipientUserId }),
+    });
+    return res.json();
+  }
+
+  static async unshareAlbumFromUser(albumId: string, recipientUserId: string) {
+    const res = await fetch(`${API_BASE}/albums/${albumId}/unshare`, {
+      method: 'POST',
+      headers: this.getHeaders(),
+      body: JSON.stringify({ recipientUserId }),
+    });
+    return res.json();
+  }
+
+  // Share ALL photos with a matched user (used in chat)
+  static async shareAllPhotosWithUser(recipientUserId: string) {
+    const res = await fetch(`${API_BASE}/albums/share-all`, {
+      method: 'POST',
+      headers: this.getHeaders(),
+      body: JSON.stringify({ recipientUserId }),
+    });
+    return res.json();
+  }
+
+  // Revoke ALL access for a user
+  static async unshareAllPhotosFromUser(recipientUserId: string) {
+    const res = await fetch(`${API_BASE}/albums/unshare-all`, {
+      method: 'POST',
+      headers: this.getHeaders(),
+      body: JSON.stringify({ recipientUserId }),
+    });
+    return res.json();
+  }
+
+  // Get list of users I've shared my album with
+  static async getAlbumRecipients() {
+    const res = await fetch(`${API_BASE}/albums/sharing/recipients`, {
+      headers: this.getHeaders(),
+    });
+    return res.json();
+  }
+
+  // Get albums shared with me
+  static async getSharedWithMe() {
+    const res = await fetch(`${API_BASE}/albums/shared/with-me`, {
+      headers: this.getHeaders(),
+    });
+    return res.json();
+  }
+
+  // Get a specific photo (checks access)
+  static async getAlbumPhoto(albumId: string) {
+    const res = await fetch(`${API_BASE}/albums/${albumId}`, {
+      headers: this.getHeaders(),
     });
     return res.json();
   }

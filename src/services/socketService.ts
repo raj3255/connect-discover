@@ -7,7 +7,7 @@ class SocketService {
   private socket: SocketIO | null = null;
   private isSearching: boolean = false; // Track if already searching
 
-  private constructor() {}
+  private constructor() { }
 
   static getInstance(): SocketService {
     if (!SocketService.instance) {

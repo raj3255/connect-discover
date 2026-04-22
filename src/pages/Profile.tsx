@@ -1,14 +1,28 @@
+// src/pages/Profile.tsx
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { Settings, Camera, Edit2, LogOut, Shield, Bell, HelpCircle, ChevronRight, ImagePlus } from 'lucide-react';
+import { Settings, Camera, Edit2, LogOut, Shield, Bell, HelpCircle, ChevronRight, ImagePlus, Plus } from 'lucide-react';
 import { StatusIndicator } from '@/components/StatusIndicator';
 import { BottomNav } from '@/components/BottomNav';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/contexts/AuthContext';
+import ApiService from '@/services/apiServices';
+
+const API_BASE = import.meta.env.VITE_API_URL?.replace('/api', '') || 'http://localhost:5000';
+
 export default function Profile() {
   const navigate = useNavigate();
   const { user, logout } = useAuth();
- 
+  const [photos, setPhotos] = useState<any[]>([]);
+
+  useEffect(() => {
+    if (!user) return;
+    ApiService.getMyAlbums().then(res => {
+      if (res.albums) setPhotos(res.albums.slice(0, 6));
+    }).catch(() => {});
+  }, [user]);
+
   const menuItems = [
     { icon: Edit2, label: 'Edit Profile', action: () => navigate('/edit-profile') },
     { icon: Bell, label: 'Notifications', action: () => {} },
@@ -21,12 +35,11 @@ export default function Profile() {
     navigate('/login', { replace: true });
   };
 
-  // Show loading state if user data is not available
   if (!user) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4" />
           <p className="text-muted-foreground">Loading profile...</p>
         </div>
       </div>
@@ -38,24 +51,23 @@ export default function Profile() {
     return name.split(' ').map(n => n[0]).join('').toUpperCase();
   };
 
-  // Parse interests if they're stored as string
-  const interests = Array.isArray(user.interests) 
-    ? user.interests 
+  const interests = Array.isArray(user.interests)
+    ? user.interests
     : typeof user.interests === 'string' && user.interests
-    ? JSON.parse(user.interests)
-    : [];
+      ? JSON.parse(user.interests)
+      : [];
 
-  // Determine status based on is_active field
   const userStatus = user.is_active ? 'online' : 'offline';
+
+  const getPhotoUrl = (url: string) =>
+    url?.startsWith('http') ? url : `${API_BASE}${url}`;
 
   return (
     <div className="min-h-screen bg-background pb-20">
       {/* Header */}
       <header className="relative">
-        {/* Background */}
         <div className="h-32 gradient-primary" />
-        
-        {/* Settings button */}
+
         <Button
           variant="glass"
           size="icon"
@@ -65,7 +77,6 @@ export default function Profile() {
           <Settings className="h-5 w-5" />
         </Button>
 
-        {/* Profile Card */}
         <div className="relative px-6 -mt-16">
           <motion.div
             initial={{ opacity: 0, y: 20 }}
@@ -77,7 +88,7 @@ export default function Profile() {
               <div className="relative">
                 {user.avatar_url ? (
                   <img
-                    src={user.avatar_url}
+                    src={getPhotoUrl(user.avatar_url)}
                     alt={user.name}
                     className="h-28 w-28 rounded-full object-cover border-4 border-card shadow-elevated"
                   />
@@ -88,7 +99,7 @@ export default function Profile() {
                     </span>
                   </div>
                 )}
-                <button 
+                <button
                   className="absolute bottom-0 right-0 h-9 w-9 rounded-full gradient-primary flex items-center justify-center shadow-glow"
                   onClick={() => navigate('/edit-profile')}
                 >
@@ -130,24 +141,67 @@ export default function Profile() {
       {/* Album Section */}
       <section className="px-6 mt-6">
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-semibold text-foreground">My Album</h2>
-          <Button variant="ghost" size="sm">
-            See All
+          <h2 className="text-lg font-semibold text-foreground">
+            My Album
+            {photos.length > 0 && (
+              <span className="text-sm text-muted-foreground font-normal ml-2">
+                ({photos.length})
+              </span>
+            )}
+          </h2>
+          <Button variant="ghost" size="sm" onClick={() => navigate('/album')}>
+            Manage
           </Button>
         </div>
-        
+
         <div className="grid grid-cols-3 gap-2">
-          {[1, 2, 3].map((i) => (
-            <motion.div
-              key={i}
-              initial={{ opacity: 0, scale: 0.9 }}
-              animate={{ opacity: 1, scale: 1 }}
-              transition={{ delay: i * 0.1 }}
-              className="aspect-square rounded-xl bg-secondary flex items-center justify-center cursor-pointer hover:bg-secondary/80 transition-colors"
-            >
-              <ImagePlus className="h-8 w-8 text-muted-foreground" />
-            </motion.div>
-          ))}
+          {photos.length > 0 ? (
+            <>
+              {photos.map((photo, i) => (
+                <motion.div
+                  key={photo.id}
+                  initial={{ opacity: 0, scale: 0.9 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  transition={{ delay: i * 0.06 }}
+                  className="aspect-square rounded-xl overflow-hidden cursor-pointer bg-secondary"
+                  onClick={() => navigate(`/album-viewer/${photo.id}`)}
+                >
+                  <img
+                    src={getPhotoUrl(photo.thumbnail_url || photo.photo_url)}
+                    alt={photo.caption || 'Photo'}
+                    className="w-full h-full object-cover hover:scale-105 transition-transform duration-200"
+                    loading="lazy"
+                  />
+                </motion.div>
+              ))}
+              {/* Add more button if less than 6 */}
+              {photos.length < 6 && (
+                <motion.div
+                  initial={{ opacity: 0, scale: 0.9 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  transition={{ delay: photos.length * 0.06 }}
+                  className="aspect-square rounded-xl bg-secondary flex items-center justify-center cursor-pointer hover:bg-secondary/80 transition-colors border-2 border-dashed border-border"
+                  onClick={() => navigate('/album')}
+                >
+                  <Plus className="h-8 w-8 text-muted-foreground" />
+                </motion.div>
+              )}
+            </>
+          ) : (
+            // Empty state — 3 placeholder boxes
+            [0, 1, 2].map((i) => (
+              <motion.div
+                key={i}
+                initial={{ opacity: 0, scale: 0.9 }}
+                animate={{ opacity: 1, scale: 1 }}
+                transition={{ delay: i * 0.1 }}
+                className="aspect-square rounded-xl bg-secondary flex items-center justify-center cursor-pointer hover:bg-secondary/80 transition-colors"
+                onClick={() => navigate('/album')}
+              >
+                <ImagePlus className="h-8 w-8 text-muted-foreground" />
+              </motion.div>
+            ))
+          )}
         </div>
       </section>
 

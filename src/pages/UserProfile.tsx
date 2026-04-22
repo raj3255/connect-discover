@@ -1,7 +1,9 @@
+//UserProfile.tsx
+// This page displays another user's profile information, including their avatar, name, bio, and interests. It also provides options to start a chat, report the user, or block/unblock them. The design focuses on providing a clear and engaging presentation of the user's profile while ensuring that all actions are easily accessible.
 import { useParams, useNavigate } from 'react-router-dom';
 import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { ArrowLeft, MoreVertical, MessageCircle, Flag, Ban, AlertCircle } from 'lucide-react';
+import { ArrowLeft, MoreVertical, MessageCircle, Flag, Ban, AlertCircle, ImagePlus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
 import ApiService from '@/services/apiServices';
@@ -38,8 +40,11 @@ interface User {
 
 interface Album {
   id: string;
-  name: string;
-  photo_count?: number;
+  photo_url?: string;
+  thumbnail_url?: string;
+  caption?: string;
+  is_public?: boolean;
+  uploaded_at?: string;
 }
 
 export default function UserProfile() {
@@ -67,7 +72,7 @@ export default function UserProfile() {
 
         // Fetch user profile
         const userResponse = await ApiService.getUserById(userId);
-        
+
         if (userResponse.success && userResponse.data) {
           setUser(userResponse.data);
         } else if (userResponse.user) {
@@ -108,7 +113,7 @@ export default function UserProfile() {
 
     try {
       const response = await ApiService.blockUser(userId);
-      
+
       if (response.success) {
         setIsBlocked(true);
         toast({
@@ -133,7 +138,7 @@ export default function UserProfile() {
 
     try {
       const response = await ApiService.unblockUser(userId);
-      
+
       if (response.success) {
         setIsBlocked(false);
         toast({
@@ -165,7 +170,7 @@ export default function UserProfile() {
 
     try {
       const response = await ApiService.reportUser(userId, reportReason, reportDescription);
-      
+
       if (response.success) {
         toast({
           title: 'Success',
@@ -192,7 +197,7 @@ export default function UserProfile() {
 
     try {
       const response = await ApiService.createConversation(userId);
-      
+
       if (response.success && response.data?.id) {
         navigate(`/chat/${response.data.id}`);
       } else if (response.conversation?.id) {
@@ -247,6 +252,12 @@ export default function UserProfile() {
     return name.split(' ').map(n => n[0]).join('').toUpperCase();
   };
 
+  const getAvatarUrl = (url: string | undefined) => {
+    if (!url) return '/placeholder.svg';
+    if (url.startsWith('http')) return url;
+    return `${import.meta.env.VITE_API_URL?.replace('/api', '') || 'http://localhost:5000'}${url}`;
+  };
+
   const createdDate = new Date(user.created_at).toLocaleDateString();
 
   return (
@@ -255,9 +266,10 @@ export default function UserProfile() {
       <div className="relative h-[50vh]">
         {user.avatar_url ? (
           <img
-            src={user.avatar_url}
+            src={getAvatarUrl(user.avatar_url)}
             alt={user.name}
             className="w-full h-full object-cover"
+            onError={(e) => { (e.target as HTMLImageElement).src = '/placeholder.svg'; }}
           />
         ) : (
           <div className="w-full h-full bg-gradient-to-br from-primary to-primary/60 flex items-center justify-center">
@@ -266,10 +278,10 @@ export default function UserProfile() {
             </span>
           </div>
         )}
-        
+
         {/* Gradient Overlay */}
         <div className="absolute inset-0 bg-gradient-to-t from-background via-background/20 to-transparent" />
-        
+
         {/* Navigation */}
         <div className="absolute top-0 left-0 right-0 flex items-center justify-between p-4 safe-area-top">
           <Button variant="ghost" size="icon" onClick={() => navigate(-1)}>
@@ -293,13 +305,12 @@ export default function UserProfile() {
               {user.name}, {user.age}
             </h1>
           </div>
-          
+
           <div className="flex items-center gap-2 text-muted-foreground mb-4">
-            <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-              user.is_active 
-                ? 'bg-green-500/20 text-green-700 dark:text-green-400' 
-                : 'bg-gray-500/20 text-gray-700 dark:text-gray-400'
-            }`}>
+            <span className={`px-2 py-1 rounded-full text-xs font-medium ${user.is_active
+              ? 'bg-green-500/20 text-green-700 dark:text-green-400'
+              : 'bg-gray-500/20 text-gray-700 dark:text-gray-400'
+              }`}>
               {user.is_active ? 'Online' : 'Offline'}
             </span>
             {user.is_verified && (
@@ -318,20 +329,27 @@ export default function UserProfile() {
             <div className="mb-8">
               <h2 className="text-lg font-semibold text-foreground mb-4">Albums ({albums.length})</h2>
               <div className="grid grid-cols-3 gap-2">
-                {albums.slice(0, 6).map((album, i) => (
+                {albums.slice(0, 6).map((album: any, i) => (
                   <motion.div
                     key={album.id}
                     initial={{ opacity: 0, scale: 0.9 }}
                     animate={{ opacity: 1, scale: 1 }}
                     transition={{ delay: i * 0.1 }}
-                    className="aspect-square rounded-xl bg-secondary flex items-center justify-center p-2"
+                    className="aspect-square rounded-xl overflow-hidden bg-secondary cursor-pointer"
+                    onClick={() => navigate(`/album-viewer?userId=${userId}`)}
                   >
-                    <div className="text-center">
-                      <p className="font-semibold text-sm line-clamp-2">{album.name}</p>
-                      <p className="text-xs text-muted-foreground">
-                        {album.photo_count || 0} photos
-                      </p>
-                    </div>
+                    {album.photo_url ? (
+                      <img
+                        src={getAvatarUrl(album.photo_url)}
+                        alt={album.caption || 'Photo'}
+                        className="w-full h-full object-cover"
+                        onError={(e) => { (e.target as HTMLImageElement).src = '/placeholder.svg'; }}
+                      />
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center">
+                        <ImagePlus className="h-8 w-8 text-muted-foreground" />
+                      </div>
+                    )}
                   </motion.div>
                 ))}
               </div>

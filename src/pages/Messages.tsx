@@ -111,11 +111,17 @@ export default function Messages() {
                   className="w-full flex items-center gap-4 p-4 rounded-2xl bg-card hover:bg-secondary transition-colors"
                 >
                   {/* Avatar */}
+                  {/* Avatar */}
                   <div className="relative shrink-0">
                     <img
-                      src={otherUser.avatar_url || '/placeholder.svg'}
+                      src={otherUser.avatar_url?.startsWith('http')
+                        ? otherUser.avatar_url
+                        : otherUser.avatar_url
+                          ? `${import.meta.env.VITE_API_URL?.replace('/api', '') || 'http://localhost:5000'}${otherUser.avatar_url}`
+                          : '/placeholder.svg'}
                       alt={otherUser.name}
                       className="h-14 w-14 rounded-full object-cover"
+                      onError={(e) => { (e.target as HTMLImageElement).src = '/placeholder.svg'; }}
                     />
                     <div className="absolute bottom-0 right-0 p-0.5 bg-card rounded-full">
                       <StatusIndicator status="online" size="sm" />

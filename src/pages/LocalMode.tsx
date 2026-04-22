@@ -35,7 +35,7 @@ export default function LocalMode() {
   const [nearbyCount, setNearbyCount] = useState(0);
   const [locationState, setLocationState] = useState<LocationState>('unknown');
   const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null);
-
+  const [isInitiator, setIsInitiator] = useState(false);
   // Refs to prevent double operations
   const isConnectingRef = useRef(false);
   const isSearchingRef = useRef(false);
@@ -150,6 +150,7 @@ export default function LocalMode() {
       setMatchId(data.matchId);
       setConversationId(data.conversationId);
       setMatchDistance(data.distance);
+      setIsInitiator(data.isInitiator);
       setMatchState('matched');
       isConnectingRef.current = false;
       isSearchingRef.current = false;
@@ -329,7 +330,7 @@ export default function LocalMode() {
         <VideoCallInterface
           user={matchedUser}
           conversationId={conversationId}
-          isInitiator={true}
+          isInitiator={isInitiator}
           onEndCall={endConnection}
           onSwitchToChat={switchToChat}
           onSkip={skipMatch}
@@ -341,6 +342,7 @@ export default function LocalMode() {
       <GlobalChatInterface
         user={matchedUser}
         currentUserId={currentUser.id}
+        conversationId={conversationId!}
         onEndChat={endConnection}
         onSwitchToVideo={switchToVideo}
         onSkip={skipMatch}
@@ -538,9 +540,12 @@ export default function LocalMode() {
                   className="relative w-28 h-28 mx-auto mb-4"
                 >
                   <img
-                    src={matchedUser.avatar}
+                    src={matchedUser.avatar?.startsWith('http')
+                      ? matchedUser.avatar
+                      : `${import.meta.env.VITE_API_URL?.replace('/api', '') || 'http://localhost:5000'}${matchedUser.avatar || ''}`}
                     alt={matchedUser.name}
                     className="w-full h-full rounded-full object-cover border-4 border-primary shadow-glow"
+                    onError={(e) => { (e.target as HTMLImageElement).src = '/placeholder.svg'; }}
                   />
                   <div className="absolute bottom-0 right-0 p-1 bg-card rounded-full border-2 border-card">
                     <StatusIndicator status={matchedUser.status} size="lg" showRing />
