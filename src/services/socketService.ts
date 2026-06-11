@@ -270,7 +270,6 @@ class SocketService {
     console.log('📹 Sending WebRTC answer');
     this.emit('webrtc:answer', { conversationId, answer });
   }
-
   // Send ICE candidate to peer
   sendICECandidate(conversationId: string, candidate: any): void {
     console.log('🧊 Sending ICE candidate');
