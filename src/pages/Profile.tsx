@@ -25,9 +25,9 @@ export default function Profile() {
 
   const menuItems = [
     { icon: Edit2, label: 'Edit Profile', action: () => navigate('/edit-profile') },
-    { icon: Bell, label: 'Notifications', action: () => {} },
-    { icon: Shield, label: 'Privacy & Security', action: () => {} },
-    { icon: HelpCircle, label: 'Help & Support', action: () => {} },
+    { icon: Bell, label: 'Notifications', action: () => navigate('/settings') },
+    { icon: Shield, label: 'Privacy & Security', action: () => navigate('/settings') },
+    { icon: HelpCircle, label: 'Help & Support', action: () => navigate('/help') },
   ];
 
   const handleLogout = () => {

@@ -1,13 +1,19 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { 
-  ArrowLeft, ChevronRight, Bell, Shield, Eye, MapPin, 
+import {
+  ArrowLeft, ChevronRight, Bell, Shield, Eye, MapPin,
   Moon, Volume2, Trash2, HelpCircle, Info, LogOut
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
+import {
+  AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogFooter,
+  AlertDialogTitle, AlertDialogDescription, AlertDialogAction, AlertDialogCancel,
+} from '@/components/ui/alert-dialog';
 import { useAuth } from '@/contexts/AuthContext';
+import { useToast } from '@/hooks/use-toast';
+import ApiService from '@/services/apiServices';
 
 interface SettingItem {
   icon: React.ElementType;
@@ -20,19 +26,97 @@ interface SettingItem {
   danger?: boolean;
 }
 
+// Maps the frontend toggle keys to the backend's snake_case setting fields.
+type SettingsKey = 'notifications' | 'locationEnabled' | 'darkMode' | 'sounds' | 'showOnline';
+const SETTING_API_KEY: Record<SettingsKey, string> = {
+  notifications: 'push_notifications',
+  locationEnabled: 'location_services',
+  darkMode: 'dark_mode',
+  sounds: 'sound_effects',
+  showOnline: 'show_online_status',
+};
+
 export default function Settings() {
   const navigate = useNavigate();
   const { logout } = useAuth();
-  
-  const [notifications, setNotifications] = useState(true);
-  const [locationEnabled, setLocationEnabled] = useState(true);
-  const [darkMode, setDarkMode] = useState(true);
-  const [sounds, setSounds] = useState(true);
-  const [showOnline, setShowOnline] = useState(true);
+  const { toast } = useToast();
+
+  const [settings, setSettings] = useState<Record<SettingsKey, boolean>>({
+    notifications: true,
+    locationEnabled: true,
+    darkMode: true,
+    sounds: true,
+    showOnline: true,
+  });
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+
+  // Tailwind is configured with darkMode: ["class"], so the theme is driven by
+  // the `dark` class on <html>.
+  const applyTheme = (dark: boolean) => {
+    document.documentElement.classList.toggle('dark', dark);
+  };
+
+  useEffect(() => {
+    ApiService.getSettings()
+      .then((res) => {
+        if (res?.data) {
+          setSettings({
+            notifications: res.data.push_notifications,
+            locationEnabled: res.data.location_services,
+            darkMode: res.data.dark_mode,
+            sounds: res.data.sound_effects,
+            showOnline: res.data.show_online_status,
+          });
+          applyTheme(res.data.dark_mode);
+        }
+      })
+      .catch(() => {
+        // Keep defaults on failure; not worth blocking the page.
+      });
+  }, []);
+
+  // Optimistically update a toggle, persist it, and revert on failure.
+  const updateSetting = async (key: SettingsKey, value: boolean) => {
+    const previous = settings[key];
+    setSettings((s) => ({ ...s, [key]: value }));
+    if (key === 'darkMode') applyTheme(value);
+    try {
+      const res = await ApiService.updateSettings({ [SETTING_API_KEY[key]]: value });
+      if (res?.error) throw new Error(res.error);
+    } catch {
+      setSettings((s) => ({ ...s, [key]: previous }));
+      if (key === 'darkMode') applyTheme(previous);
+      toast({
+        title: 'Could not save setting',
+        description: 'Please try again.',
+        variant: 'destructive',
+      });
+    }
+  };
 
   const handleLogout = () => {
     logout();
     navigate('/login', { replace: true });
+  };
+
+  const handleDeleteAccount = async () => {
+    setIsDeleting(true);
+    try {
+      const res = await ApiService.deleteAccount();
+      if (res?.error) {
+        toast({ title: 'Could not delete account', description: res.error, variant: 'destructive' });
+        return;
+      }
+      toast({ title: 'Account deleted', description: 'Your account has been permanently deleted.' });
+      logout();
+      navigate('/login', { replace: true });
+    } catch {
+      toast({ title: 'Could not delete account', description: 'Please try again.', variant: 'destructive' });
+    } finally {
+      setIsDeleting(false);
+      setDeleteOpen(false);
+    }
   };
 
   const settingsSections: { title: string; items: SettingItem[] }[] = [
@@ -40,34 +124,34 @@ export default function Settings() {
       title: 'Preferences',
       items: [
         { 
-          icon: Bell, 
-          label: 'Push Notifications', 
+          icon: Bell,
+          label: 'Push Notifications',
           description: 'Receive alerts for messages and matches',
-          toggle: true, 
-          toggleValue: notifications, 
-          onToggle: setNotifications 
+          toggle: true,
+          toggleValue: settings.notifications,
+          onToggle: (v) => updateSetting('notifications', v)
         },
-        { 
-          icon: MapPin, 
-          label: 'Location Services', 
+        {
+          icon: MapPin,
+          label: 'Location Services',
           description: 'Required for local mode',
-          toggle: true, 
-          toggleValue: locationEnabled, 
-          onToggle: setLocationEnabled 
+          toggle: true,
+          toggleValue: settings.locationEnabled,
+          onToggle: (v) => updateSetting('locationEnabled', v)
         },
-        { 
-          icon: Moon, 
-          label: 'Dark Mode', 
-          toggle: true, 
-          toggleValue: darkMode, 
-          onToggle: setDarkMode 
+        {
+          icon: Moon,
+          label: 'Dark Mode',
+          toggle: true,
+          toggleValue: settings.darkMode,
+          onToggle: (v) => updateSetting('darkMode', v)
         },
-        { 
-          icon: Volume2, 
-          label: 'Sound Effects', 
-          toggle: true, 
-          toggleValue: sounds, 
-          onToggle: setSounds 
+        {
+          icon: Volume2,
+          label: 'Sound Effects',
+          toggle: true,
+          toggleValue: settings.sounds,
+          onToggle: (v) => updateSetting('sounds', v)
         },
       ],
     },
@@ -76,21 +160,21 @@ export default function Settings() {
       items: [
         { 
           icon: Eye, 
-          label: 'Show Online Status', 
+          label: 'Show Online Status',
           description: 'Let others see when you\'re online',
-          toggle: true, 
-          toggleValue: showOnline, 
-          onToggle: setShowOnline 
+          toggle: true,
+          toggleValue: settings.showOnline,
+          onToggle: (v) => updateSetting('showOnline', v)
         },
         { 
           icon: Shield, 
           label: 'Blocked Users', 
           action: () => navigate('/blocked-users') 
         },
-        { 
-          icon: Shield, 
-          label: 'Privacy Policy', 
-          action: () => {} 
+        {
+          icon: Shield,
+          label: 'Privacy Policy',
+          action: () => window.open('https://connect.app/legal/privacy', '_blank', 'noopener,noreferrer')
         },
       ],
     },
@@ -113,11 +197,11 @@ export default function Settings() {
       title: 'Account',
       items: [
         { 
-          icon: Trash2, 
-          label: 'Delete Account', 
+          icon: Trash2,
+          label: 'Delete Account',
           description: 'Permanently delete your account and data',
-          action: () => {},
-          danger: true 
+          action: () => setDeleteOpen(true),
+          danger: true
         },
         { 
           icon: LogOut, 
@@ -200,6 +284,30 @@ export default function Settings() {
           Connect v1.0.0
         </p>
       </div>
+
+      <AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete your account?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This permanently deletes your account and data. This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isDeleting}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => {
+                e.preventDefault();
+                handleDeleteAccount();
+              }}
+              disabled={isDeleting}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {isDeleting ? 'Deleting…' : 'Delete Account'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

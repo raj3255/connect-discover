@@ -158,6 +158,7 @@ export default function Help() {
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.1 }}
+          onClick={() => { window.location.href = 'mailto:support@connect.app?subject=Support%20Request'; }}
           className="w-full p-4 rounded-2xl gradient-primary flex items-center gap-4 shadow-glow"
         >
           <div className="h-12 w-12 rounded-full bg-primary-foreground/20 flex items-center justify-center">

@@ -13,11 +13,15 @@ export default function About() {
   ];
 
   const links = [
-    { label: 'Terms of Service', url: '#' },
-    { label: 'Privacy Policy', url: '#' },
-    { label: 'Community Guidelines', url: '#' },
-    { label: 'Open Source Licenses', url: '#' },
+    { label: 'Terms of Service', url: 'https://connect.app/legal/terms' },
+    { label: 'Privacy Policy', url: 'https://connect.app/legal/privacy' },
+    { label: 'Community Guidelines', url: 'https://connect.app/legal/guidelines' },
+    { label: 'Open Source Licenses', url: 'https://connect.app/legal/licenses' },
   ];
+
+  const openLink = (url: string) => {
+    window.open(url, '_blank', 'noopener,noreferrer');
+  };
 
   return (
     <div className="min-h-screen bg-background">
@@ -100,7 +104,7 @@ export default function About() {
             {links.map((link) => (
               <button
                 key={link.label}
-                onClick={() => {}}
+                onClick={() => openLink(link.url)}
                 className="w-full flex items-center justify-between p-4 hover:bg-secondary/50 transition-colors"
               >
                 <span className="text-foreground">{link.label}</span>

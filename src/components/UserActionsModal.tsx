@@ -1,7 +1,9 @@
+import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, Flag, Ban, Share2, AlertTriangle } from 'lucide-react';
+import { X, Flag, Ban, Share2, AlertTriangle, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
+import ApiService from '@/services/apiServices';
 
 interface UserActionsModalProps {
   isOpen: boolean;
@@ -9,31 +11,59 @@ interface UserActionsModalProps {
   userName: string;
   userId: string;
   action: 'block' | 'report' | 'share' | null;
+  onBlocked?: (userId: string) => void;
 }
 
-export function UserActionsModal({ 
-  isOpen, 
-  onClose, 
-  userName, 
+export function UserActionsModal({
+  isOpen,
+  onClose,
+  userName,
   userId,
-  action 
+  action,
+  onBlocked,
 }: UserActionsModalProps) {
   const { toast } = useToast();
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const handleBlock = () => {
-    toast({
-      title: "User blocked",
-      description: `${userName} has been blocked. They won't be able to contact you.`,
-    });
-    onClose();
+  const handleBlock = async () => {
+    setIsSubmitting(true);
+    try {
+      const res = await ApiService.blockUser(userId);
+      if (res?.error) {
+        toast({ title: 'Could not block user', description: res.error, variant: 'destructive' });
+        return;
+      }
+      toast({
+        title: 'User blocked',
+        description: `${userName} has been blocked. They won't be able to contact you.`,
+      });
+      onBlocked?.(userId);
+      onClose();
+    } catch {
+      toast({ title: 'Could not block user', description: 'Please try again.', variant: 'destructive' });
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
-  const handleReport = () => {
-    toast({
-      title: "Report submitted",
-      description: "Thank you for helping keep our community safe. We'll review this report.",
-    });
-    onClose();
+  const handleReport = async (reason: string) => {
+    setIsSubmitting(true);
+    try {
+      const res = await ApiService.reportUser(userId, reason);
+      if (res?.error) {
+        toast({ title: 'Could not submit report', description: res.error, variant: 'destructive' });
+        return;
+      }
+      toast({
+        title: 'Report submitted',
+        description: "Thank you for helping keep our community safe. We'll review this report.",
+      });
+      onClose();
+    } catch {
+      toast({ title: 'Could not submit report', description: 'Please try again.', variant: 'destructive' });
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const handleShare = () => {
@@ -45,13 +75,14 @@ export function UserActionsModal({
     onClose();
   };
 
-  const reportReasons = [
-    'Inappropriate content',
-    'Fake profile',
-    'Harassment',
-    'Spam',
-    'Underage user',
-    'Other',
+  // Labels shown to the user mapped to the backend's accepted reason enum values.
+  const reportReasons: { label: string; value: string }[] = [
+    { label: 'Inappropriate content', value: 'inappropriate_content' },
+    { label: 'Fake profile', value: 'fake_profile' },
+    { label: 'Harassment', value: 'harassment' },
+    { label: 'Spam', value: 'spam' },
+    { label: 'Underage user', value: 'underage' },
+    { label: 'Other', value: 'other' },
   ];
 
   return (
@@ -103,11 +134,15 @@ export function UserActionsModal({
                 </div>
 
                 <div className="flex gap-3">
-                  <Button variant="outline" className="flex-1" onClick={onClose}>
+                  <Button variant="outline" className="flex-1" onClick={onClose} disabled={isSubmitting}>
                     Cancel
                   </Button>
-                  <Button variant="destructive" className="flex-1" onClick={handleBlock}>
-                    <Ban className="h-4 w-4 mr-2" />
+                  <Button variant="destructive" className="flex-1" onClick={handleBlock} disabled={isSubmitting}>
+                    {isSubmitting ? (
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    ) : (
+                      <Ban className="h-4 w-4 mr-2" />
+                    )}
                     Block
                   </Button>
                 </div>
@@ -129,12 +164,13 @@ export function UserActionsModal({
                 <div className="space-y-2 mb-6">
                   {reportReasons.map((reason) => (
                     <button
-                      key={reason}
-                      onClick={handleReport}
-                      className="w-full flex items-center gap-3 p-4 rounded-xl bg-secondary hover:bg-secondary/80 transition-colors"
+                      key={reason.value}
+                      onClick={() => handleReport(reason.value)}
+                      disabled={isSubmitting}
+                      className="w-full flex items-center gap-3 p-4 rounded-xl bg-secondary hover:bg-secondary/80 transition-colors disabled:opacity-50"
                     >
                       <AlertTriangle className="h-5 w-5 text-muted-foreground" />
-                      <span className="text-foreground">{reason}</span>
+                      <span className="text-foreground">{reason.label}</span>
                     </button>
                   ))}
                 </div>

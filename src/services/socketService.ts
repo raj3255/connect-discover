@@ -166,6 +166,14 @@ class SocketService {
     this.on('status:user_offline', callback);
   }
 
+  onOnlineCount(callback: (data: { count: number }) => void): void {
+    this.on('presence:online_count', callback);
+  }
+
+  requestOnlineCount(): void {
+    this.emit('presence:get_count');
+  }
+
   // ============================================================================
   // LOCATION METHODS
   // ============================================================================

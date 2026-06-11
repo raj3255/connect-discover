@@ -23,7 +23,7 @@ export default function GlobalMode() {
   const [matchedUser, setMatchedUser] = useState<User | null>(null);
   const [matchId, setMatchId] = useState<string | null>(null);
   const [conversationId, setConversationId] = useState<string | null>(null);
-  const [onlineCount] = useState(2341);
+  const [onlineCount, setOnlineCount] = useState(0);
   const [searchTime, setSearchTime] = useState(0);
   const [currentMode, setCurrentMode] = useState<'chat' | 'video'>('chat');
   const [preferences, setPreferences] = useState<MatchPreferencesData | null>(null);
@@ -90,12 +90,19 @@ export default function GlobalMode() {
       isSearchingRef.current = false;
     };
 
+    const handleOnlineCount = (data: { count: number }) => {
+      setOnlineCount(data.count);
+    };
+
     SocketService.onMatchFound(handleMatchFound);
     SocketService.onPartnerLeft(handlePartnerLeft);
+    SocketService.onOnlineCount(handleOnlineCount);
+    SocketService.requestOnlineCount();
 
     return () => {
       SocketService.off('match:found');
       SocketService.off('match:partner_left');
+      SocketService.off('presence:online_count');
     };
   }, []);
 

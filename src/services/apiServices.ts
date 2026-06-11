@@ -184,6 +184,22 @@ class ApiService {
     return res.json();
   }
 
+  static async searchByCity(query: {
+    city: string;
+    radius?: number;
+    limit?: number;
+  }) {
+    const params = new URLSearchParams();
+    params.append('city', query.city);
+    if (query.radius) params.append('radius', query.radius.toString());
+    if (query.limit) params.append('limit', query.limit.toString());
+
+    const res = await fetch(`${API_BASE}/location/search-by-city?${params.toString()}`, {
+      headers: this.getHeaders()
+    });
+    return res.json();
+  }
+
   static async getOnlineStatus(userId: string) {
     const res = await fetch(`${API_BASE}/users/${userId}/online-status`, {
       headers: this.getHeaders()
@@ -193,6 +209,40 @@ class ApiService {
 
   static async getUserAlbums(userId: string) {
     const res = await fetch(`${API_BASE}/users/${userId}/albums`, {
+      headers: this.getHeaders()
+    });
+    return res.json();
+  }
+
+  // ============================================================================
+  // SETTINGS & ACCOUNT ENDPOINTS
+  // ============================================================================
+
+  static async getSettings() {
+    const res = await fetch(`${API_BASE}/users/settings`, {
+      headers: this.getHeaders()
+    });
+    return res.json();
+  }
+
+  static async updateSettings(settings: {
+    push_notifications?: boolean;
+    location_services?: boolean;
+    dark_mode?: boolean;
+    sound_effects?: boolean;
+    show_online_status?: boolean;
+  }) {
+    const res = await fetch(`${API_BASE}/users/settings`, {
+      method: 'PUT',
+      headers: this.getHeaders(),
+      body: JSON.stringify(settings)
+    });
+    return res.json();
+  }
+
+  static async deleteAccount() {
+    const res = await fetch(`${API_BASE}/users/account`, {
+      method: 'DELETE',
       headers: this.getHeaders()
     });
     return res.json();

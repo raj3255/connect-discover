@@ -1,18 +1,68 @@
-import { useState } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ArrowLeft, MapPin, RefreshCw, Filter, Users } from 'lucide-react';
+import { ArrowLeft, MapPin, RefreshCw, Filter, Users, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { UserCard } from '@/components/UserCard';
 import { BottomNav } from '@/components/BottomNav';
-import { mockUsers } from '@/data/mockUsers';
+import { useToast } from '@/hooks/use-toast';
+import ApiService from '@/services/apiServices';
+import { User } from '@/types';
+
+// Maps a user record from the /location/search-by-city endpoint to the
+// frontend User shape consumed by UserCard.
+const mapApiUser = (u: any, cityName?: string): User => ({
+  id: u.id,
+  name: u.name,
+  age: u.age,
+  gender: u.gender ?? 'other',
+  bio: u.bio ?? '',
+  avatar: u.avatar_url ?? '',
+  photos: u.avatar_url ? [u.avatar_url] : [],
+  location: { city: cityName ?? '', distance: u.distanceFromCity },
+  status: u.status ?? 'online',
+  interests: u.interests ?? [],
+});
 
 export default function CitySearchResults() {
   const navigate = useNavigate();
   const { cityName } = useParams();
-  const [users, setUsers] = useState(mockUsers);
+  const { toast } = useToast();
+  const [users, setUsers] = useState<User[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
+  const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
+
+  const fetchUsers = useCallback(async () => {
+    if (!cityName) return;
+    try {
+      const res = await ApiService.searchByCity({ city: cityName, limit: 30 });
+      if (res?.error) {
+        toast({
+          title: 'Search failed',
+          description: res.error,
+          variant: 'destructive',
+        });
+        setUsers([]);
+        return;
+      }
+      const mapped = (res?.usersFound ?? []).map((u: any) => mapApiUser(u, cityName));
+      setUsers(mapped);
+      setCurrentIndex(0);
+    } catch (err) {
+      toast({
+        title: 'Search failed',
+        description: 'Could not load users for this city. Please try again.',
+        variant: 'destructive',
+      });
+      setUsers([]);
+    }
+  }, [cityName, toast]);
+
+  useEffect(() => {
+    setIsLoading(true);
+    fetchUsers().finally(() => setIsLoading(false));
+  }, [fetchUsers]);
 
   const handleSwipeLeft = () => {
     setCurrentIndex(prev => Math.min(prev + 1, users.length));
@@ -32,8 +82,7 @@ export default function CitySearchResults() {
 
   const handleRefresh = async () => {
     setIsRefreshing(true);
-    await new Promise(resolve => setTimeout(resolve, 1000));
-    setCurrentIndex(0);
+    await fetchUsers();
     setIsRefreshing(false);
   };
 
@@ -79,7 +128,12 @@ export default function CitySearchResults() {
       {/* User Cards */}
       <div className="relative h-[calc(100vh-200px)] px-4">
         <AnimatePresence>
-          {currentIndex < users.length ? (
+          {isLoading ? (
+            <div className="absolute inset-0 flex flex-col items-center justify-center">
+              <Loader2 className="h-8 w-8 text-primary animate-spin mb-4" />
+              <p className="text-muted-foreground">Finding people in {cityName}…</p>
+            </div>
+          ) : currentIndex < users.length ? (
             users.slice(currentIndex, currentIndex + 3).reverse().map((user, index) => (
               <motion.div
                 key={user.id}
