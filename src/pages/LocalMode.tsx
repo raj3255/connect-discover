@@ -168,6 +168,11 @@ export default function LocalMode() {
         return;
       }
 
+      // Update refs immediately so handleMatchAccepted can read them even
+      // before React re-renders and propagates the state → useEffect chain.
+      conversationIdRef.current = data.conversationId;
+      matchIdRef.current = data.matchId;
+
       setMatchedUser(data.partner);
       setMatchId(data.matchId);
       setConversationId(data.conversationId);
