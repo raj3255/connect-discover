@@ -1,15 +1,13 @@
-import { io, Socket } from 'socket.io-client';
-import type { ChatEvents, ChatMessage } from '@/api/sockets/chatHandler';
-import type { StatusEvents, UserStatus } from '@/api/sockets/statusHandler';
-import type { LocationEvents, LocationData, NearbyUser } from '@/api/sockets/locationHandler';
-import type { MatchEvents, MatchPreferences, MatchedUser, MatchSession } from '@/api/sockets/matchHandler';
-import type { TypingEvents } from '@/api/sockets/typingHandler';
+import io from 'socket.io-client';
+
+type SocketIO = ReturnType<typeof io>;
 
 class SocketService {
   private static instance: SocketService;
-  private socket: Socket | null = null;
+  private socket: SocketIO | null = null;
+  private isSearching: boolean = false; // Track if already searching
 
-  private constructor() {}
+  private constructor() { }
 
   static getInstance(): SocketService {
     if (!SocketService.instance) {
@@ -18,7 +16,7 @@ class SocketService {
     return SocketService.instance;
   }
 
-  connect(token: string): Socket {
+  connect(token: string): SocketIO {
     if (this.socket?.connected) {
       return this.socket;
     }
@@ -42,32 +40,42 @@ class SocketService {
     if (!this.socket) return;
 
     this.socket.on('connect', () => {
-      console.log('✅ Socket connected:', this.socket?.id);
+      console.log('✅ Socket connected');
     });
 
-    this.socket.on('disconnect', (reason) => {
-      console.log('❌ Socket disconnected:', reason);
-    });
-
-    this.socket.on('connect_error', (error) => {
-      console.error('❌ Socket connection error:', error.message);
+    this.socket.on('disconnect', () => {
+      console.log('❌ Socket disconnected');
+      this.isSearching = false; // Reset on disconnect
     });
 
     this.socket.on('error', (error) => {
       console.error('❌ Socket error:', error);
     });
+
+    this.socket.on('connection:success', (data) => {
+      console.log('✅ Socket connection success:', data);
+    });
+
+    // Listen for match events to update search state
+    this.socket.on('match:found', () => {
+      this.isSearching = false;
+    });
+
+    this.socket.on('match:stopped', () => {
+      this.isSearching = false;
+    });
   }
 
-  emit<T = any>(event: string, data?: T): void {
+  emit(event: string, data?: any): void {
     this.socket?.emit(event, data);
   }
 
-  on<T = any>(event: string, callback: (data: T) => void): void {
+  on(event: string, callback: (data: any) => void): void {
     this.socket?.on(event, callback);
   }
 
-  off(event: string, callback?: (...args: any[]) => void): void {
-    this.socket?.off(event, callback);
+  off(event: string): void {
+    this.socket?.off(event);
   }
 
   disconnect(): void {
@@ -90,35 +98,32 @@ class SocketService {
   // ============================================================================
 
   joinChat(conversationId: string): void {
-    this.emit('chat:join', { conversationId });
+    this.emit('join_chat', conversationId);
   }
 
   leaveChat(conversationId: string): void {
-    this.emit('chat:leave', { conversationId });
+    this.emit('leave_chat', conversationId);
   }
 
-  sendMessage(conversationId: string, content: string, type: 'text' | 'image' | 'video' = 'text'): void {
-    this.emit('chat:message', { conversationId, content, type });
+  sendMessage(conversationId: string, text: string, mediaUrls?: string[]): void {
+    this.emit('send_message', {
+      conversationId,
+      text,
+      mediaUrls: mediaUrls || [],
+      messageType: 'text'
+    });
   }
 
-  markMessageRead(conversationId: string, messageId: string): void {
-    this.emit('chat:message_read', { conversationId, messageId });
-  }
-
-  onChatJoined(callback: (data: { conversationId: string; messages: ChatMessage[] }) => void): void {
-    this.on('chat:joined', callback);
-  }
-
-  onNewMessage(callback: (message: ChatMessage) => void): void {
+  onNewMessage(callback: (message: any) => void): void {
     this.on('chat:new_message', callback);
   }
 
-  onMessageRead(callback: (data: { conversationId: string; messageId: string; readBy: string; readAt: string }) => void): void {
-    this.on('chat:message_read', callback);
+  onMessagesRead(callback: (data: any) => void): void {
+    this.on('chat:messages_read', callback);
   }
 
-  onChatError(callback: (error: { message: string }) => void): void {
-    this.on('chat:error', callback);
+  onJoined(callback: (data: any) => void): void {
+    this.on('chat:joined', callback);
   }
 
   // ============================================================================
@@ -126,18 +131,18 @@ class SocketService {
   // ============================================================================
 
   startTyping(conversationId: string): void {
-    this.emit('typing:start', { conversationId });
+    this.emit('typing:start', conversationId);
   }
 
   stopTyping(conversationId: string): void {
-    this.emit('typing:stop', { conversationId });
+    this.emit('typing:stop', conversationId);
   }
 
-  onUserTyping(callback: (data: { conversationId: string; userId: string; userName: string }) => void): void {
+  onUserTyping(callback: (data: any) => void): void {
     this.on('typing:user_typing', callback);
   }
 
-  onUserStoppedTyping(callback: (data: { conversationId: string; userId: string }) => void): void {
+  onUserStoppedTyping(callback: (data: any) => void): void {
     this.on('typing:user_stopped', callback);
   }
 
@@ -145,162 +150,241 @@ class SocketService {
   // STATUS METHODS
   // ============================================================================
 
-  updateStatus(status: UserStatus): void {
-    this.emit('status:update', { status });
+  updateStatus(status: 'online' | 'idle' | 'offline'): void {
+    this.emit('status:update', status);
   }
 
   subscribeToStatus(userIds: string[]): void {
-    this.emit('status:subscribe', { userIds });
+    this.emit('status:subscribe', userIds);
   }
 
-  unsubscribeFromStatus(userIds: string[]): void {
-    this.emit('status:unsubscribe', { userIds });
-  }
-
-  onUserOnline(callback: (data: { userId: string; status: UserStatus; lastSeen?: string }) => void): void {
+  onUserOnline(callback: (data: any) => void): void {
     this.on('status:user_online', callback);
   }
 
-  onUserOffline(callback: (data: { userId: string; lastSeen: string }) => void): void {
+  onUserOffline(callback: (data: any) => void): void {
     this.on('status:user_offline', callback);
   }
 
-  onBulkStatus(callback: (data: { statuses: Array<{ userId: string; status: UserStatus; lastSeen?: string }> }) => void): void {
-    this.on('status:bulk_status', callback);
+  onOnlineCount(callback: (data: { count: number }) => void): void {
+    this.on('presence:online_count', callback);
+  }
+
+  requestOnlineCount(): void {
+    this.emit('presence:get_count');
   }
 
   // ============================================================================
   // LOCATION METHODS
   // ============================================================================
 
-  updateLocation(location: LocationData): void {
-    this.emit('location:update', location);
+  updateLocation(latitude: number, longitude: number, accuracy?: number): void {
+    this.emit('location:update', {
+      latitude,
+      longitude,
+      accuracy: accuracy || 10
+    });
   }
 
-  subscribeNearby(radiusKm: number): void {
-    this.emit('location:subscribe_nearby', { radiusKm });
+  subscribeNearby(radius: number): void {
+    this.emit('location:subscribe_nearby', radius);
   }
 
-  unsubscribeNearby(): void {
-    this.emit('location:unsubscribe_nearby');
-  }
-
-  onNearbyUsers(callback: (data: { users: NearbyUser[] }) => void): void {
+  onNearbyUsers(callback: (data: any) => void): void {
     this.on('location:nearby_users', callback);
-  }
-
-  onLocationError(callback: (error: { message: string }) => void): void {
-    this.on('location:error', callback);
   }
 
   // ============================================================================
   // MATCHING METHODS
   // ============================================================================
 
-  startMatching(preferences: MatchPreferences): void {
-    this.emit('match:start_searching', preferences);
+  startMatching(mode: 'chat' | 'video', ageRange: [number, number], genderPreference: string): void {
+    if (this.isSearching) {
+      console.warn('⚠️ Already searching, ignoring duplicate request');
+      return;
+    }
+
+    console.log('🔍 Starting match search:', { mode, ageRange, genderPreference });
+    this.isSearching = true;
+    this.emit('match:start_searching', {
+      mode,
+      ageRange,
+      genderPreference
+    });
   }
 
   stopMatching(): void {
+    console.log('⏹️ Stopping match search');
+    this.isSearching = false;
     this.emit('match:stop_searching');
   }
 
   acceptMatch(matchId: string): void {
-    this.emit('match:accept', { matchId });
+    this.emit('match:accept', matchId);
   }
 
   declineMatch(matchId: string): void {
-    this.emit('match:decline', { matchId });
+    this.emit('match:decline', matchId);
   }
 
-  skipPartner(): void {
-    this.emit('match:skip');
+  skipMatch(matchId: string): void {
+    console.log('⏭️ Skipping match:', matchId);
+    this.emit('match:skip', matchId);
   }
 
   endSession(): void {
     this.emit('match:end_session');
   }
 
-  switchMode(mode: 'chat' | 'video'): void {
-    this.emit('match:switch_mode', { mode });
-  }
-
-  onSearching(callback: () => void): void {
+  onMatching(callback: () => void): void {
     this.on('match:searching', callback);
   }
 
-  onMatchFound(callback: (data: { matchId: string; partner: MatchedUser; expiresAt: string }) => void): void {
+  onMatchFound(callback: (data: any) => void): void {
     this.on('match:found', callback);
   }
 
-  onMatchExpired(callback: (data: { matchId: string }) => void): void {
-    this.on('match:expired', callback);
-  }
-
-  onSessionStarted(callback: (session: MatchSession) => void): void {
-    this.on('match:session_started', callback);
+  onMatchAccepted(callback: (data: any) => void): void {
+    this.on('match:accepted', callback);
   }
 
   onPartnerLeft(callback: () => void): void {
     this.on('match:partner_left', callback);
   }
 
-  onSessionEnded(callback: (data: { reason: string }) => void): void {
-    this.on('match:session_ended', callback);
+  onPartnerSkipped(callback: () => void): void {
+    this.on('match:partner_skipped', callback);
+  }
+  // ============================================================================
+  // WEBRTC METHODS - Video Call Signaling
+  // ============================================================================
+
+  // Send WebRTC offer to peer
+  sendWebRTCOffer(conversationId: string, offer: any): void {
+    console.log('📹 Sending WebRTC offer');
+    this.emit('webrtc:offer', { conversationId, offer });
   }
 
-  onModeChanged(callback: (data: { mode: 'chat' | 'video'; changedBy: string }) => void): void {
-    this.on('match:mode_changed', callback);
+  // Send WebRTC answer to peer
+  sendWebRTCAnswer(conversationId: string, answer: any): void {
+    console.log('📹 Sending WebRTC answer');
+    this.emit('webrtc:answer', { conversationId, answer });
+  }
+  // Send ICE candidate to peer
+  sendICECandidate(conversationId: string, candidate: any): void {
+    console.log('🧊 Sending ICE candidate');
+    this.emit('webrtc:ice-candidate', { conversationId, candidate });
   }
 
-  onMatchError(callback: (error: { message: string }) => void): void {
-    this.on('match:error', callback);
+  // End video call
+  endVideoCall(conversationId: string): void {
+    console.log('📞 Ending video call');
+    this.emit('webrtc:end-call', { conversationId });
+  }
+
+  // Notify peer about media toggle (video/audio on/off)
+  toggleMediaState(conversationId: string, type: 'video' | 'audio', enabled: boolean): void {
+    console.log(`🎥 Toggling ${type} to ${enabled ? 'on' : 'off'}`);
+    this.emit('webrtc:media-toggle', { conversationId, type, enabled });
+  }
+
+  // Listen for incoming WebRTC offer
+  onWebRTCOffer(callback: (data: { userId: string; offer: any; conversationId: string }) => void): void {
+    this.on('webrtc:offer', callback);
+  }
+
+  // Listen for incoming WebRTC answer
+  onWebRTCAnswer(callback: (data: { userId: string; answer: any; conversationId: string }) => void): void {
+    this.on('webrtc:answer', callback);
+  }
+
+  // Listen for incoming ICE candidates
+  onICECandidate(callback: (data: { userId: string; candidate: any; conversationId: string }) => void): void {
+    this.on('webrtc:ice-candidate', callback);
+  }
+
+  // Listen for call ended by peer
+  onCallEnded(callback: (data: { userId: string; conversationId: string }) => void): void {
+    this.on('webrtc:call-ended', callback);
+  }
+
+  // Listen for peer media toggle
+  onMediaToggle(callback: (data: { userId: string; type: 'video' | 'audio'; enabled: boolean }) => void): void {
+    this.on('webrtc:media-toggle', callback);
+  }
+
+  // Listen for WebRTC errors
+  onWebRTCError(callback: (data: { message: string }) => void): void {
+    this.on('webrtc:error', callback);
   }
 
   // ============================================================================
-  // CLEANUP HELPERS
+  // GLOBAL MODE WRAPPERS (UI-FRIENDLY)
   // ============================================================================
 
-  removeAllChatListeners(): void {
-    this.off('chat:joined');
-    this.off('chat:new_message');
-    this.off('chat:message_read');
-    this.off('chat:error');
+  startGlobalSearch(data: {
+    mode: 'chat' | 'video';
+    ageRange: [number, number];
+    genderPreference: string;
+  }): void {
+    this.startMatching(data.mode, data.ageRange, data.genderPreference);
   }
 
-  removeAllTypingListeners(): void {
-    this.off('typing:user_typing');
-    this.off('typing:user_stopped');
+  cancelGlobalSearch(): void {
+    this.stopMatching();
   }
 
-  removeAllStatusListeners(): void {
-    this.off('status:user_online');
-    this.off('status:user_offline');
-    this.off('status:bulk_status');
+  skipGlobalMatch(matchId: string): void {
+    this.skipMatch(matchId);
   }
 
-  removeAllLocationListeners(): void {
-    this.off('location:nearby_users');
-    this.off('location:error');
+  onGlobalMatch(callback: (user: any) => void): void {
+    this.on('match:found', callback);
   }
 
-  removeAllMatchListeners(): void {
-    this.off('match:searching');
-    this.off('match:found');
-    this.off('match:expired');
-    this.off('match:session_started');
-    this.off('match:partner_left');
-    this.off('match:session_ended');
-    this.off('match:mode_changed');
-    this.off('match:error');
+  // ============================================================================
+  // LOCAL MODE METHODS (DISTANCE-BASED MATCHING)
+  // ============================================================================
+
+  startLocalSearch(data: {
+    mode: 'chat' | 'video';
+    maxDistance: number;
+    ageRange: [number, number];
+    genderPreference: string;
+  }): void {
+    console.log('🗺️ Starting LOCAL search:', data);
+    this.emit('local_match:start_searching', data);
   }
 
-  removeAllListeners(): void {
-    this.removeAllChatListeners();
-    this.removeAllTypingListeners();
-    this.removeAllStatusListeners();
-    this.removeAllLocationListeners();
-    this.removeAllMatchListeners();
+  cancelLocalSearch(): void {
+    console.log('⏹️ Stopping LOCAL search');
+    this.emit('local_match:stop_searching');
+  }
+
+  skipLocalMatch(matchId: string): void {
+    console.log('⏭️ Skipping LOCAL match:', matchId);
+    this.emit('local_match:skip', matchId);
+  }
+
+  acceptLocalMatch(matchId: string): void {
+    console.log('✅ Accepting local match:', matchId);
+    this.emit('local_match:accept', matchId);
+  }
+
+  onLocalMatchAccepted(callback: (data: any) => void): void {
+    this.on('local_match:accepted', callback);
+  }
+
+  onLocalMatchFound(callback: (data: any) => void): void {
+    this.on('local_match:found', callback);
+  }
+
+  onLocalPartnerLeft(callback: () => void): void {
+    this.on('local_match:partner_left', callback);
+  }
+
+  onLocalPartnerSkipped(callback: () => void): void {
+    this.on('local_match:partner_skipped', callback);
   }
 }
 
