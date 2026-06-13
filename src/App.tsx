@@ -22,6 +22,7 @@ import AlbumViewer from "./pages/AlbumViewer";
 import CitySearchResults from "./pages/CitySearchResults";
 import UserProfile from "./pages/UserProfile";
 import Settings from "./pages/Settings";
+import BlockedUsers from "./pages/BlockedUsers";
 import About from "./pages/About";
 import Help from "./pages/Help";
 import NotFound from "./pages/NotFound";
@@ -67,6 +68,7 @@ function AppRoutes() {
       <Route path="/album-viewer/:photoId?" element={<ProtectedRoute><AlbumViewer /></ProtectedRoute>} />
       <Route path="/user/:userId" element={<ProtectedRoute><UserProfile /></ProtectedRoute>} />
       <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
+      <Route path="/blocked-users" element={<ProtectedRoute><BlockedUsers /></ProtectedRoute>} />
       <Route path="/about" element={<ProtectedRoute><About /></ProtectedRoute>} />
       <Route path="/help" element={<ProtectedRoute><Help /></ProtectedRoute>} />
       

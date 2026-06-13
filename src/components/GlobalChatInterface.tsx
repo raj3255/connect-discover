@@ -23,6 +23,8 @@ import { StatusIndicator } from '@/components/StatusIndicator';
 import { UserActionsModal } from '@/components/UserActionsModal';
 import { AlbumShareButton } from './AlbumShareButton';
 import { useNavigate } from 'react-router-dom';
+import { playMessageReceived, playMessageSent } from '@/utils/sounds';
+import { showNotif } from '@/utils/notifications';
 interface ChatMessage {
   id: string;
   content: string;
@@ -97,6 +99,10 @@ export function GlobalChatInterface({
         timestamp: new Date(message.createdAt),
         type: 'text',
       }]);
+      if (message.senderId !== currentUserId) {
+        playMessageReceived();
+        showNotif(user.name ?? 'New message', message.text?.slice(0, 80) ?? '');
+      }
     });
 
     SocketService.onUserTyping(({ userId }) => {
@@ -120,6 +126,7 @@ export function GlobalChatInterface({
 
   const sendMessage = () => {
     if (!inputValue.trim() || !conversationId) return;
+    playMessageSent();
 
     const newMsg: ChatMessage = {
       id: Date.now().toString(),
@@ -394,6 +401,7 @@ export function GlobalChatInterface({
         action={actionType}
         userName={user.name}
         userId={user.id}
+        onBlocked={() => onEndChat()}
       />
     </div>
   );

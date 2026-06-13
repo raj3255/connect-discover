@@ -4,6 +4,8 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Globe, Users } from 'lucide-react';
 import SocketService from '@/services/SocketService';
 import { useAuth } from '@/contexts/AuthContext';
+import { playMatchFound } from '@/utils/sounds';
+import { showNotif } from '@/utils/notifications';
 import { User } from '@/types';
 import { StatusIndicator } from '@/components/StatusIndicator';
 import { BottomNav } from '@/components/BottomNav';
@@ -34,6 +36,15 @@ export default function GlobalMode() {
   const hasNavigatedRef = useRef(false);
   const mountedRef = useRef(true);
   const hasInitializedRef = useRef(false);
+  // Stable refs so socket callbacks see latest values without stale closure
+  const currentModeRef = useRef<'chat' | 'video'>('chat');
+  const conversationIdRef = useRef<string | null>(null);
+  const matchIdRef = useRef<string | null>(null);
+
+  // Keep stable refs in sync
+  useEffect(() => { currentModeRef.current = currentMode; }, [currentMode]);
+  useEffect(() => { conversationIdRef.current = conversationId; }, [conversationId]);
+  useEffect(() => { matchIdRef.current = matchId; }, [matchId]);
 
   // Prevent any operations until component is fully stable
   useEffect(() => {
@@ -65,7 +76,6 @@ export default function GlobalMode() {
     const handleMatchFound = (data: any) => {
       console.log('🎉 Match found event received:', data);
 
-      // Prevent processing if already navigating
       if (hasNavigatedRef.current) {
         console.log('⚠️ Already navigated, ignoring match event');
         return;
@@ -78,6 +88,24 @@ export default function GlobalMode() {
       setMatchState('matched');
       isConnectingRef.current = false;
       isSearchingRef.current = false;
+      playMatchFound();
+      showNotif('Match Found!', `You matched with ${data.partner?.name ?? 'someone'}`);
+    };
+
+    // Fires for BOTH users when either one clicks Connect — syncs them to 'connected'
+    const handleMatchAccepted = () => {
+      if (hasNavigatedRef.current) return;
+      const mode = currentModeRef.current;
+      const convId = conversationIdRef.current;
+      if (mode === 'video') {
+        console.log('✅ match:accepted — transitioning to video call');
+        setMatchState('connected');
+        isConnectingRef.current = false;
+      } else if (mode === 'chat' && convId) {
+        console.log('✅ match:accepted — navigating to chat');
+        hasNavigatedRef.current = true;
+        navigate(`/chat/${convId}`, { replace: true });
+      }
     };
 
     const handlePartnerLeft = () => {
@@ -95,12 +123,14 @@ export default function GlobalMode() {
     };
 
     SocketService.onMatchFound(handleMatchFound);
+    SocketService.onMatchAccepted(handleMatchAccepted);
     SocketService.onPartnerLeft(handlePartnerLeft);
     SocketService.onOnlineCount(handleOnlineCount);
     SocketService.requestOnlineCount();
 
     return () => {
       SocketService.off('match:found');
+      SocketService.off('match:accepted');
       SocketService.off('match:partner_left');
       SocketService.off('presence:online_count');
     };
@@ -154,35 +184,24 @@ export default function GlobalMode() {
   };
 
   const connectToMatch = () => {
-    if (!matchedUser || !conversationId) {
-      console.log('❌ Missing matched user or conversationId');
+    if (!matchedUser || !conversationId || !matchId) {
+      console.log('❌ Missing matched user, conversationId, or matchId');
       return;
     }
 
-    // Prevent double-click
     if (isConnectingRef.current || hasNavigatedRef.current) {
       console.log('⚠️ Already connecting or navigated, ignoring');
       return;
     }
 
     isConnectingRef.current = true;
+    isSearchingRef.current = false;
     setMatchState('connecting');
 
-    // Mark as no longer searching
-    isSearchingRef.current = false;
-
-    // If video mode, stay on this page and switch to connected state
-    if (currentMode === 'video') {
-      console.log('✅ Starting video call');
-      setMatchState('connected');
-    } else {
-      // If chat mode, navigate to chat page
-      hasNavigatedRef.current = true;
-      console.log(`✅ Navigating to chat/${conversationId}`);
-      setTimeout(() => {
-        navigate(`/chat/${conversationId}`, { replace: true });
-      }, 100);
-    }
+    // Notify backend — it immediately emits match:accepted to BOTH users.
+    // handleMatchAccepted (above) will transition both to 'connected'/'chat' simultaneously.
+    // This ensures the non-initiator's WebRTC hook is mounted before the offer arrives.
+    SocketService.acceptMatch(matchId);
   };
 
   const cancelSearch = () => {

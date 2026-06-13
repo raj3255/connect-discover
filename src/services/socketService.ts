@@ -366,6 +366,15 @@ class SocketService {
     this.emit('local_match:skip', matchId);
   }
 
+  acceptLocalMatch(matchId: string): void {
+    console.log('✅ Accepting local match:', matchId);
+    this.emit('local_match:accept', matchId);
+  }
+
+  onLocalMatchAccepted(callback: (data: any) => void): void {
+    this.on('local_match:accepted', callback);
+  }
+
   onLocalMatchFound(callback: (data: any) => void): void {
     this.on('local_match:found', callback);
   }

@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useEffect, ReactNode } from
 import { User, AuthState } from '@/types';
 import SocketService from '@/services/SocketService';
 import ApiService from '@/services/apiServices';
+import { applyBootstrapSettings } from '@/utils/settingsCache';
 
 interface AuthContextType extends AuthState {
   login: (email: string, password: string) => Promise<void>;
@@ -121,20 +122,34 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           if (res.ok) {
             const data: ApiResponse<User> = await res.json();
             const userData = data.user || data.data || null;
-            
+
             console.log('🔍 Raw user data from server:', userData);
-            
+
             if (userData) {
-              // ✅ Normalize user data to ensure interests are parsed and avatar URL is full
               const normalizedUser = normalizeUserData(userData);
-              
+
               setState({
                 user: normalizedUser,
                 isAuthenticated: true,
                 isLoading: false,
               });
-              
-              // Connect socket after successful auth
+
+              // Apply all settings immediately at bootstrap (dark mode, sound, etc.)
+              try {
+                const settingsRes = await fetch(`${API_BASE_URL}/users/settings`, {
+                  headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+                });
+                if (settingsRes.ok) {
+                  const settingsData = await settingsRes.json();
+                  if (settingsData?.data) {
+                    applyBootstrapSettings(settingsData.data);
+                    document.documentElement.classList.toggle('dark', settingsData.data.dark_mode ?? true);
+                  }
+                }
+              } catch {
+                // non-fatal — keep whatever class is already on <html>
+              }
+
               SocketService.connect(token);
             } else {
               setState(prev => ({ ...prev, isLoading: false }));

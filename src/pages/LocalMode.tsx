@@ -5,6 +5,9 @@ import { MapPin, Users, Loader2 } from 'lucide-react';
 import SocketService from '@/services/SocketService';
 import ApiService from '@/services/apiServices';
 import { useAuth } from '@/contexts/AuthContext';
+import { playMatchFound } from '@/utils/sounds';
+import { showNotif } from '@/utils/notifications';
+import { readCachedSetting } from '@/utils/settingsCache';
 import { User } from '@/types';
 import { StatusIndicator } from '@/components/StatusIndicator';
 import { BottomNav } from '@/components/BottomNav';
@@ -42,6 +45,14 @@ export default function LocalMode() {
   const hasNavigatedRef = useRef(false);
   const mountedRef = useRef(true);
   const hasInitializedRef = useRef(false);
+  const currentModeRef = useRef<'chat' | 'video'>('chat');
+  const conversationIdRef = useRef<string | null>(null);
+  const matchIdRef = useRef<string | null>(null);
+
+  // Keep stable refs in sync
+  useEffect(() => { currentModeRef.current = currentMode; }, [currentMode]);
+  useEffect(() => { conversationIdRef.current = conversationId; }, [conversationId]);
+  useEffect(() => { matchIdRef.current = matchId; }, [matchId]);
 
   // Initialize and request location
   useEffect(() => {
@@ -56,6 +67,17 @@ export default function LocalMode() {
 
   // Request location permission
   const requestLocation = async () => {
+    // Respect the Location Services setting
+    if (!readCachedSetting('cd_location_services', true)) {
+      toast({
+        title: 'Location Services Disabled',
+        description: 'Turn on Location Services in Settings to use Local Mode.',
+        variant: 'destructive',
+      });
+      setLocationState('denied');
+      return;
+    }
+
     if (!navigator.geolocation) {
       toast({
         title: 'Location Not Supported',
@@ -151,6 +173,8 @@ export default function LocalMode() {
       setConversationId(data.conversationId);
       setMatchDistance(data.distance);
       setIsInitiator(data.isInitiator);
+      playMatchFound();
+      showNotif('Nearby Match Found!', `${data.partner?.name ?? 'Someone'} is ${data.distance ?? 'nearby'}`);
       setMatchState('matched');
       isConnectingRef.current = false;
       isSearchingRef.current = false;
@@ -167,11 +191,28 @@ export default function LocalMode() {
       isSearchingRef.current = false;
     };
 
+    const handleMatchAccepted = () => {
+      if (hasNavigatedRef.current) return;
+      const mode = currentModeRef.current;
+      const convId = conversationIdRef.current;
+      if (mode === 'video') {
+        console.log('✅ local_match:accepted — transitioning to video call');
+        setMatchState('connected');
+        isConnectingRef.current = false;
+      } else if (mode === 'chat' && convId) {
+        console.log('✅ local_match:accepted — navigating to chat');
+        hasNavigatedRef.current = true;
+        navigate(`/chat/${convId}`, { replace: true });
+      }
+    };
+
     SocketService.onLocalMatchFound(handleMatchFound);
+    SocketService.onLocalMatchAccepted(handleMatchAccepted);
     SocketService.onLocalPartnerLeft(handlePartnerLeft);
 
     return () => {
       SocketService.off('local_match:found');
+      SocketService.off('local_match:accepted');
       SocketService.off('local_match:partner_left');
     };
   }, []);
@@ -196,6 +237,16 @@ export default function LocalMode() {
     if (!hasInitializedRef.current) {
       console.log('⚠️ Component not initialized yet, delaying search');
       setTimeout(() => startSearching(prefs), 600);
+      return;
+    }
+
+    // Respect the Location Services setting before anything else
+    if (!readCachedSetting('cd_location_services', true)) {
+      toast({
+        title: 'Location Services Disabled',
+        description: 'Turn on Location Services in Settings to use Local Mode.',
+        variant: 'destructive',
+      });
       return;
     }
 
@@ -232,8 +283,8 @@ export default function LocalMode() {
   };
 
   const connectToMatch = () => {
-    if (!matchedUser || !conversationId) {
-      console.log('❌ Missing matched user or conversationId');
+    if (!matchedUser || !conversationId || !matchId) {
+      console.log('❌ Missing matched user, conversationId, or matchId');
       return;
     }
 
@@ -243,19 +294,11 @@ export default function LocalMode() {
     }
 
     isConnectingRef.current = true;
-    setMatchState('connecting');
     isSearchingRef.current = false;
+    setMatchState('connecting');
 
-    if (currentMode === 'video') {
-      console.log('✅ Starting video call');
-      setMatchState('connected');
-    } else {
-      hasNavigatedRef.current = true;
-      console.log(`✅ Navigating to chat/${conversationId}`);
-      setTimeout(() => {
-        navigate(`/chat/${conversationId}`, { replace: true });
-      }, 100);
-    }
+    // Backend emits local_match:accepted to BOTH users — syncs them before WebRTC starts
+    SocketService.acceptLocalMatch(matchId);
   };
 
   const cancelSearch = () => {

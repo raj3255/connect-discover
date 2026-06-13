@@ -14,6 +14,8 @@ import {
 import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/hooks/use-toast';
 import ApiService from '@/services/apiServices';
+import { cacheSettingValue, applyBootstrapSettings } from '@/utils/settingsCache';
+import { requestNotifPermission, getNotifPermission } from '@/utils/notifications';
 
 interface SettingItem {
   icon: React.ElementType;
@@ -62,17 +64,28 @@ export default function Settings() {
       .then((res) => {
         if (res?.data) {
           setSettings({
-            notifications: res.data.push_notifications,
-            locationEnabled: res.data.location_services,
-            darkMode: res.data.dark_mode,
-            sounds: res.data.sound_effects,
-            showOnline: res.data.show_online_status,
+            notifications: res.data.push_notifications ?? true,
+            locationEnabled: res.data.location_services ?? true,
+            darkMode: res.data.dark_mode ?? true,
+            sounds: res.data.sound_effects ?? true,
+            showOnline: res.data.show_online_status ?? true,
           });
-          applyTheme(res.data.dark_mode);
+          applyTheme(res.data.dark_mode ?? true);
+          applyBootstrapSettings(res.data);
+        } else if (res?.error) {
+          toast({
+            title: 'Could not load settings',
+            description: 'Make sure the backend is running and migrations have been applied (npm run migrate).',
+            variant: 'destructive',
+          });
         }
       })
       .catch(() => {
-        // Keep defaults on failure; not worth blocking the page.
+        toast({
+          title: 'Could not connect to server',
+          description: 'Settings will not be saved until the backend is reachable.',
+          variant: 'destructive',
+        });
       });
   }, []);
 
@@ -81,12 +94,37 @@ export default function Settings() {
     const previous = settings[key];
     setSettings((s) => ({ ...s, [key]: value }));
     if (key === 'darkMode') applyTheme(value);
+
+    // Mirror to localStorage immediately so runtime utils can read it synchronously
+    cacheSettingValue(SETTING_API_KEY[key], value);
+
+    // If push notifications just turned ON, request browser permission
+    if (key === 'notifications' && value) {
+      const perm = getNotifPermission();
+      if (perm === 'denied') {
+        toast({
+          title: 'Notifications blocked',
+          description: 'Allow notifications in your browser settings, then try again.',
+          variant: 'destructive',
+        });
+      } else if (perm !== 'granted') {
+        const granted = await requestNotifPermission();
+        if (!granted) {
+          // Revert — user denied the browser prompt
+          setSettings((s) => ({ ...s, [key]: false }));
+          cacheSettingValue(SETTING_API_KEY[key], false);
+          return;
+        }
+      }
+    }
+
     try {
       const res = await ApiService.updateSettings({ [SETTING_API_KEY[key]]: value });
       if (res?.error) throw new Error(res.error);
     } catch {
       setSettings((s) => ({ ...s, [key]: previous }));
       if (key === 'darkMode') applyTheme(previous);
+      cacheSettingValue(SETTING_API_KEY[key], previous);
       toast({
         title: 'Could not save setting',
         description: 'Please try again.',

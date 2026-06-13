@@ -16,6 +16,8 @@ import { useToast } from '@/hooks/use-toast';
 import { AlbumShareButton } from '@/components/AlbumShareButton';
 import EmojiPicker, { EmojiClickData } from 'emoji-picker-react';
 import { UserActionsModal } from '@/components/UserActionsModal';
+import { playMessageReceived, playMessageSent } from '@/utils/sounds';
+import { showNotif } from '@/utils/notifications';
 
 interface Message {
   id: string;
@@ -80,6 +82,14 @@ export default function Chat() {
         ...prev,
         { ...message, createdAt: new Date(message.createdAt) }
       ]);
+      // Only play/notify for messages from the other person
+      if (message.senderId !== currentUser?.id) {
+        playMessageReceived();
+        showNotif(
+          otherUser?.name ?? 'New message',
+          message.text?.slice(0, 80) ?? 'You have a new message'
+        );
+      }
     });
 
     SocketService.onUserTyping(({ userId }) => {
@@ -138,6 +148,7 @@ export default function Chat() {
 
   const handleSend = async () => {
     if (!newMessage.trim() || !conversationId) return;
+    playMessageSent();
 
     const tempMessage: Message = {
       id: `temp-${Date.now()}`,
@@ -411,6 +422,7 @@ export default function Chat() {
         action={actionType}
         userName={otherUser?.name}
         userId={otherUser?.id}
+        onBlocked={() => navigate('/messages', { replace: true })}
       />
     </div>
 
