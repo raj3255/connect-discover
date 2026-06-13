@@ -221,6 +221,9 @@ export default function GlobalMode() {
     if (matchedUser?.id && matchId) {
       console.log('⏭️ Skipping match:', matchId);
       SocketService.skipGlobalMatch(matchId);
+    } else {
+      // Still in a session but no matchId — end cleanly
+      SocketService.endSession();
     }
 
     setMatchedUser(null);
@@ -238,6 +241,8 @@ export default function GlobalMode() {
   }, [matchedUser, matchId, toast]);
 
   const endConnection = useCallback(() => {
+    // Tell backend to release the activeMatches entry so the user can search again
+    SocketService.endSession();
     setMatchedUser(null);
     setMatchId(null);
     setConversationId(null);

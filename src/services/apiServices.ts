@@ -104,7 +104,7 @@ class ApiService {
   }
 
   static async refreshToken(refreshToken: string) {
-    const res = await fetch(`${API_BASE}/auth/refresh-token`, {
+    const res = await fetch(`${API_BASE}/auth/refresh`, {
       method: 'POST',
       headers: this.getHeaders(),
       body: JSON.stringify({ refreshToken })
