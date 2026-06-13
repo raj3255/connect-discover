@@ -327,6 +327,12 @@ class SocketService {
     ageRange: [number, number];
     genderPreference: string;
   }): void {
+    // Reset stale flag — after a match is found/ended, isSearching is never reset
+    // to false (only cancelGlobalSearch does that), so subsequent searches are
+    // silently dropped by startMatching's guard. Clear it here so a new explicit
+    // search always goes through. GlobalMode.tsx's isSearchingRef prevents rapid
+    // double-clicks at the page level.
+    this.isSearching = false;
     this.startMatching(data.mode, data.ageRange, data.genderPreference);
   }
 

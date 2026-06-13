@@ -31,6 +31,9 @@ export const useWebRTC = ({
   const peerConnection = useRef<RTCPeerConnection | null>(null);
   const pendingCandidates = useRef<RTCIceCandidateInit[]>([]);
   const hasStarted = useRef(false); // FIX 3: prevents multiple startCall() fires
+  // Refs so the cleanup effect (registered once with []) can always see the latest streams
+  const localStreamRef = useRef<MediaStream | null>(null);
+  const remoteStreamRef = useRef<MediaStream | null>(null);
 
   // ─── Stable refs for latest handler functions (FIX 1) ───────────────────────
   const answerCallRef = useRef<((offer: RTCSessionDescriptionInit) => Promise<void>) | null>(null);
@@ -44,6 +47,7 @@ export const useWebRTC = ({
       video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: 'user' },
       audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
     });
+    localStreamRef.current = stream; // keep ref in sync so cleanup can always stop tracks
     setLocalStream(stream);
     return stream;
   }, []);
@@ -71,6 +75,7 @@ export const useWebRTC = ({
     pc.ontrack = (event) => {
       console.log('📹 Received remote track');
       const [remote] = event.streams;
+      remoteStreamRef.current = remote; // keep ref in sync for cleanup
       setRemoteStream(remote);
       onRemoteStream?.(remote);
     };
@@ -196,8 +201,10 @@ export const useWebRTC = ({
   const endCall = useCallback(() => {
     console.log('📞 Ending call');
 
-    localStream?.getTracks().forEach(track => track.stop());
-    remoteStream?.getTracks().forEach(track => track.stop());
+    localStreamRef.current?.getTracks().forEach(track => track.stop());
+    remoteStreamRef.current?.getTracks().forEach(track => track.stop());
+    localStreamRef.current = null;
+    remoteStreamRef.current = null;
 
     peerConnection.current?.close();
     peerConnection.current = null;
@@ -209,7 +216,7 @@ export const useWebRTC = ({
     setIsConnected(false);
     setIsConnecting(false);
     hasStarted.current = false;
-  }, [localStream, remoteStream, conversationId]);
+  }, [conversationId]);
 
   // ─── Keep refs in sync with latest functions (FIX 1) ─────────────────────────
   useEffect(() => { answerCallRef.current = answerCall; }, [answerCall]);
@@ -264,8 +271,14 @@ export const useWebRTC = ({
   // ─── Cleanup on unmount ───────────────────────────────────────────────────────
   useEffect(() => {
     return () => {
-      localStream?.getTracks().forEach(track => track.stop());
-      remoteStream?.getTracks().forEach(track => track.stop());
+      // Use refs (not state) so this always sees the latest streams regardless of
+      // when React flushed the last setState. Without refs, localStream/remoteStream
+      // are null here (stale closure from mount time) and the camera is never released,
+      // causing NotFoundError on the next call attempt.
+      localStreamRef.current?.getTracks().forEach(track => track.stop());
+      remoteStreamRef.current?.getTracks().forEach(track => track.stop());
+      localStreamRef.current = null;
+      remoteStreamRef.current = null;
       peerConnection.current?.close();
       peerConnection.current = null;
     };
